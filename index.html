@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>10分スケジュール（プロトタイプ）</title>
+<style>
+  :root {
+    --h: 20px;            /* 1スロット(10分)の高さ。ズームで変更 */
+    --timew: 52px;
+    --colw: 150px;
+    --bg: #ffffff; --fg: #1f2328; --muted: #6b7280;
+    --line: #eceef1; --line-strong: #c4c9d0; --head: #f8fafc;
+    --accent: #2563eb; --now: #ef4444;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1115; --fg: #e6e8eb; --muted: #9aa3ae;
+      --line: #1f232a; --line-strong: #3a404b; --head: #161a21; --accent: #60a5fa;
+    }
+  }
+  @media (max-width: 600px) {
+    :root { --timew: 44px; --colw: 120px; }
+    header h1 { width: 100%; }
+    header button { padding: 6px 8px; }
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg);
+    font-family: system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif; }
+  body { display: flex; flex-direction: column; }
+  button, select, input { font: inherit; color: inherit; }
+  button { background: var(--bg); border: 1px solid var(--line-strong); border-radius: 8px;
+    padding: 6px 10px; cursor: pointer; min-height: 36px; white-space: nowrap; }
+  button:disabled { opacity: .5; cursor: default; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.danger { color: #dc2626; border-color: #dc2626; }
+  input, select { background: var(--bg); border: 1px solid var(--line-strong); border-radius: 8px;
+    padding: 6px 8px; min-height: 36px; }
+
+  header { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 8px 12px;
+    border-bottom: 1px solid var(--line-strong); background: var(--head); }
+  header h1 { font-size: 16px; margin: 0 8px 0 0; white-space: nowrap; }
+  .group { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+  .spacer { flex: 1; }
+
+  /* タイムテーブル */
+  #scroller { flex: 1; overflow: auto; position: relative; -webkit-overflow-scrolling: touch; }
+  .board { display: flex; min-width: 100%; width: max-content; }
+  .timecol { position: sticky; left: 0; z-index: 3; background: var(--bg); width: var(--timew);
+    flex: none; border-right: 1px solid var(--line-strong); }
+  .corner, .colhead { position: sticky; top: 0; height: 40px; background: var(--head);
+    border-bottom: 1px solid var(--line-strong); z-index: 2; }
+  .corner { z-index: 4; }
+  .tlabel { height: var(--h); font-size: 11px; color: var(--muted); text-align: right;
+    padding-right: 6px; font-variant-numeric: tabular-nums; }
+  .tlabel span { position: relative; top: -7px; }
+  .tlabel:first-of-type span { top: 0; }
+  .col { min-width: var(--colw); flex: 1 0 var(--colw); border-right: 1px solid var(--line); }
+  .colhead { display: flex; align-items: center; gap: 6px; padding: 0 8px; font-weight: 600;
+    font-size: 14px; white-space: nowrap; overflow: hidden; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+  .slots { position: relative; touch-action: pan-x pan-y; user-select: none; -webkit-user-select: none; }
+  .cell { height: var(--h); border-bottom: 1px dashed var(--line); }
+  .cell.half { border-bottom: 1px solid var(--line); }
+  .cell.hour { border-bottom: 1px solid var(--line-strong); }
+  .cell:hover { background: rgba(37, 99, 235, .06); }
+  .ev { position: absolute; left: 3px; right: 3px; border-radius: 6px; padding: 1px 6px; font-size: 12px;
+    line-height: 1.35; overflow: hidden; color: #fff; cursor: pointer; z-index: 1;
+    box-shadow: 0 1px 2px rgba(0,0,0,.25); }
+  .ev small { opacity: .9; margin-left: 4px; }
+  .preview { position: absolute; left: 2px; right: 2px; border: 2px dashed var(--accent);
+    background: rgba(37, 99, 235, .15); border-radius: 6px; pointer-events: none; z-index: 2;
+    font-size: 11px; color: var(--accent); padding: 0 4px; font-weight: 600; }
+  .nowline { position: absolute; left: 0; right: 0; height: 2px; background: var(--now);
+    z-index: 2; pointer-events: none; }
+
+  /* ダイアログ・トースト */
+  dialog { border: none; border-radius: 12px; padding: 0; width: min(440px, 94vw);
+    background: var(--bg); color: var(--fg); box-shadow: 0 10px 40px rgba(0,0,0,.3); }
+  dialog::backdrop { background: rgba(0,0,0,.35); }
+  dialog form { padding: 16px; display: grid; gap: 10px; }
+  dialog h2 { margin: 0 0 4px; font-size: 18px; }
+  label { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
+  .row { display: flex; gap: 8px; align-items: center; }
+  .row > * { flex: 1; }
+  .actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 6px; }
+  .actions .danger { margin-right: auto; }
+  .member-row { display: flex; gap: 6px; align-items: center; }
+  .member-row input[type=text] { flex: 1; min-width: 0; }
+  .member-row input[type=color] { width: 44px; padding: 2px; }
+  .note { font-size: 12px; color: var(--muted); margin: 0; line-height: 1.5; }
+  #toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); max-width: 92vw;
+    background: #111827; color: #fff; padding: 10px 14px; border-radius: 10px; font-size: 14px;
+    z-index: 10; opacity: 0; pointer-events: none; transition: opacity .2s; }
+  #toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+<header>
+  <h1>⏱ 10分スケジュール</h1>
+  <div class="group">
+    <button id="prev" aria-label="前日">◀</button>
+    <input type="date" id="date">
+    <button id="next" aria-label="翌日">▶</button>
+    <button id="today">今日</button>
+  </div>
+  <div class="spacer"></div>
+  <div class="group">
+    <button id="zoom" title="マス目の大きさを切替">🔍 標準</button>
+    <button id="members">👥 メンバー</button>
+    <button id="notif">🔔 通知を許可</button>
+    <button id="export" title="JSONで書き出し">⬇</button>
+    <button id="import" title="JSONを読み込み">⬆</button>
+    <input type="file" id="importFile" accept="application/json" hidden>
+  </div>
+</header>
+
+<div id="scroller"><div class="board" id="board"></div></div>
+
+<!-- 予定の追加・編集 -->
+<dialog id="editor">
+  <form id="editorForm">
+    <h2 id="editorTitle">予定を追加</h2>
+    <label>タイトル<input type="text" id="fTitle" placeholder="例: 打ち合わせ" maxlength="60"></label>
+    <label>担当メンバー<select id="fMember"></select></label>
+    <div class="row">
+      <label>開始<select id="fStart"></select></label>
+      <label>終了<select id="fEnd"></select></label>
+    </div>
+    <label>リマインド<select id="fRemind">
+      <option value="0">なし</option>
+      <option value="5">5分前</option>
+      <option value="10">10分前</option>
+      <option value="15">15分前</option>
+      <option value="30">30分前</option>
+      <option value="60">60分前</option>
+    </select></label>
+    <div class="actions">
+      <button type="button" class="danger" id="fDelete">削除</button>
+      <button type="button" id="fCancel">キャンセル</button>
+      <button type="submit" class="primary">保存</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- メンバー管理 -->
+<dialog id="memberDlg">
+  <form id="memberForm">
+    <h2>メンバー</h2>
+    <div id="memberList" style="display:grid;gap:6px"></div>
+    <button type="button" id="addMember">＋ メンバーを追加</button>
+    <p class="note">※ プロトタイプではデータはこのブラウザ内（localStorage）にのみ保存されます。
+      同じブラウザの別タブには即時反映されます。本番版では招待リンクを共有して他の端末から参加できるようにします。</p>
+    <div class="actions"><button type="submit" class="primary">閉じる</button></div>
+  </form>
+</dialog>
+
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script>
+(() => {
+  'use strict';
+
+  // ===== 定数・ユーティリティ =====
+  const SLOTS = 144;                         // 24時間 × 6スロット(10分)
+  const KEY = 'tenmin-schedule-v1';
+  const NOTIFIED_KEY = 'tenmin-notified-v1';
+  const ZOOM_KEY = 'tenmin-zoom';
+  const COLORS = ['#2563eb', '#16a34a', '#db2777', '#ea580c', '#7c3aed', '#0891b2', '#ca8a04', '#475569'];
+  const ZOOMS = [{ h: 12, label: '小' }, { h: 20, label: '標準' }, { h: 32, label: '大' }];
+
+  const $ = (s) => document.querySelector(s);
+  const pad = (n) => String(n).padStart(2, '0');
+  const slotLabel = (s) => `${pad(Math.floor(s / 6))}:${pad((s % 6) * 10)}`;
+  const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+  const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const dateStr = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const todayStr = () => dateStr(new Date());
+
+  function readJSON(key, fallback) {
+    try { const v = JSON.parse(localStorage.getItem(key)); return v ?? fallback; } catch { return fallback; }
+  }
+  function writeJSON(key, value) {
+    try { localStorage.setItem(key, JSON.stringify(value)); } catch { toast('保存に失敗しました（ストレージが使えません）'); }
+  }
+
+  // ===== 状態 =====
+  function load() {
+    const s = readJSON(KEY, null);
+    if (s && Array.isArray(s.members) && Array.isArray(s.events) && s.members.length) return s;
+    return { members: [{ id: uid(), name: '自分', color: COLORS[0] }], events: [] };
+  }
+  let state = load();
+  let curDate = todayStr();
+  let anchor = null;        // タップ操作の開始マス {memberId, slot}
+  let editingId = null;     // 編集中の予定ID
+  const save = () => writeJSON(KEY, state);
+
+  // ===== 描画 =====
+  const board = $('#board');
+  const previewEl = document.createElement('div');
+  previewEl.className = 'preview';
+
+  function render() {
+    board.innerHTML = '';
+
+    const timecol = document.createElement('div');
+    timecol.className = 'timecol';
+    timecol.innerHTML = '<div class="corner"></div>' + Array.from({ length: SLOTS }, (_, i) =>
+      `<div class="tlabel">${i % 6 === 0 ? `<span>${slotLabel(i)}</span>` : ''}</div>`).join('');
+    board.append(timecol);
+
+    const cells = Array.from({ length: SLOTS }, (_, i) =>
+      `<div class="cell${i % 6 === 5 ? ' hour' : i % 3 === 2 ? ' half' : ''}"></div>`).join('');
+
+    for (const m of state.members) {
+      const col = document.createElement('div');
+      col.className = 'col';
+      col.innerHTML = `<div class="colhead"><span class="dot" style="background:${esc(m.color)}"></span>${esc(m.name)}</div>` +
+        `<div class="slots" data-member="${esc(m.id)}">${cells}</div>`;
+      board.append(col);
+
+      const slots = col.querySelector('.slots');
+      for (const ev of state.events) {
+        if (ev.date !== curDate || ev.memberId !== m.id) continue;
+        const el = document.createElement('div');
+        el.className = 'ev';
+        el.style.top = `calc(var(--h) * ${ev.start} + 1px)`;
+        el.style.height = `calc(var(--h) * ${ev.end - ev.start} - 2px)`;
+        el.style.background = m.color;
+        el.title = `${ev.title || '(無題)'} ${slotLabel(ev.start)}–${slotLabel(ev.end)}`;
+        el.innerHTML = `<b>${esc(ev.title || '(無題)')}</b><small>${slotLabel(ev.start)}–${slotLabel(ev.end)}${ev.remind ? ' 🔔' : ''}</small>`;
+        el.addEventListener('click', () => openEditor(ev));
+        slots.append(el);
+      }
+      attachPointer(slots);
+    }
+
+    if (anchor) {
+      const s = board.querySelector(`.slots[data-member="${CSS.escape(anchor.memberId)}"]`);
+      if (s) showPreview(s, anchor.slot, anchor.slot + 1); else anchor = null;
+    }
+    drawNowLine();
+  }
+
+  function showPreview(slots, a, b) {
+    previewEl.style.top = `calc(var(--h) * ${a})`;
+    previewEl.style.height = `calc(var(--h) * ${b - a})`;
+    previewEl.textContent = `${slotLabel(a)}–${slotLabel(b)}`;
+    if (previewEl.parentNode !== slots) slots.append(previewEl);
+  }
+  function hidePreview() { previewEl.remove(); }
+  function clearAnchor() { anchor = null; hidePreview(); }
+
+  function drawNowLine() {
+    document.querySelectorAll('.nowline').forEach((n) => n.remove());
+    if (curDate !== todayStr()) return;
+    const d = new Date();
+    const slot = (d.getHours() * 60 + d.getMinutes()) / 10;
+    document.querySelectorAll('.slots').forEach((s) => {
+      const line = document.createElement('div');
+      line.className = 'nowline';
+      line.style.top = `calc(var(--h) * ${slot})`;
+      s.append(line);
+    });
+  }
+
+  function slotHeight() {
+    const c = board.querySelector('.cell');
+    return c ? c.getBoundingClientRect().height : 20;
+  }
+  function scrollToSlot(slot) {
+    $('#scroller').scrollTop = Math.max(0, (slot - 6) * slotHeight());
+  }
+  function scrollToNow() {
+    const d = new Date();
+    scrollToSlot(Math.floor((d.getHours() * 60 + d.getMinutes()) / 10));
+  }
+
+  // ===== 操作（マウス: ドラッグで範囲選択 / タッチ: 開始マス→終了マスの2タップ） =====
+  function slotAt(slots, e) {
+    const r = slots.getBoundingClientRect();
+    const s = Math.floor((e.clientY - r.top) / (r.height / SLOTS));
+    return Math.max(0, Math.min(SLOTS - 1, s));
+  }
+
+  function attachPointer(slots) {
+    const memberId = slots.dataset.member;
+    let drag = null;
+
+    slots.addEventListener('pointerdown', (e) => {
+      if (e.target.closest('.ev')) return;
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      const s = slotAt(slots, e);
+      drag = { start: s, end: s, x: e.clientX, y: e.clientY, mouse: e.pointerType === 'mouse', moved: false };
+      if (drag.mouse) {
+        slots.setPointerCapture(e.pointerId);
+        showPreview(slots, s, s + 1);
+      }
+    });
+
+    slots.addEventListener('pointermove', (e) => {
+      if (!drag) return;
+      if (Math.abs(e.clientX - drag.x) + Math.abs(e.clientY - drag.y) > 8) drag.moved = true;
+      if (drag.mouse) {
+        drag.end = slotAt(slots, e);
+        showPreview(slots, Math.min(drag.start, drag.end), Math.max(drag.start, drag.end) + 1);
+      }
+    });
+
+    slots.addEventListener('pointerup', () => {
+      if (!drag) return;
+      const d = drag; drag = null;
+      if (d.mouse && d.end !== d.start) {
+        clearAnchor();
+        openEditor({ memberId, start: Math.min(d.start, d.end), end: Math.max(d.start, d.end) + 1 });
+        return;
+      }
+      if (d.moved) return;          // スクロール操作だった
+      tapSlot(slots, memberId, d.start);
+    });
+
+    slots.addEventListener('pointercancel', () => {
+      drag = null;                  // タッチでスクロールが始まった
+      if (!anchor) hidePreview();
+    });
+  }
+
+  function tapSlot(slots, memberId, s) {
+    if (anchor && anchor.memberId === memberId) {
+      const a = Math.min(anchor.slot, s), b = Math.max(anchor.slot, s) + 1;
+      clearAnchor();
+      openEditor({ memberId, start: a, end: b });
+    } else {
+      anchor = { memberId, slot: s };
+      showPreview(slots, s, s + 1);
+      toast(`開始 ${slotLabel(s)} を選択 → 終了のマスをタップ（同じマスなら10分）`);
+    }
+  }
+
+  // ===== 予定ダイアログ =====
+  const editor = $('#editor');
+  $('#fStart').innerHTML = Array.from({ length: SLOTS }, (_, i) => `<option value="${i}">${slotLabel(i)}</option>`).join('');
+  $('#fEnd').innerHTML = Array.from({ length: SLOTS }, (_, i) => `<option value="${i + 1}">${slotLabel(i + 1)}</option>`).join('');
+
+  function openEditor(ev) {
+    editingId = ev.id || null;
+    $('#editorTitle').textContent = editingId ? '予定を編集' : '予定を追加';
+    $('#fTitle').value = ev.title || '';
+    $('#fMember').innerHTML = state.members.map((m) => `<option value="${esc(m.id)}">${esc(m.name)}</option>`).join('');
+    $('#fMember').value = ev.memberId;
+    $('#fStart').value = ev.start;
+    $('#fEnd').value = ev.end;
+    $('#fRemind').value = ev.remind ?? 10;
+    $('#fDelete').hidden = !editingId;
+    editor.showModal();
+    $('#fTitle').focus();
+  }
+
+  $('#editorForm').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const data = {
+      title: $('#fTitle').value.trim(),
+      memberId: $('#fMember').value,
+      start: Number($('#fStart').value),
+      end: Number($('#fEnd').value),
+      remind: Number($('#fRemind').value),
+    };
+    if (data.end <= data.start) return alert('終了時刻は開始時刻より後にしてください。');
+    const target = editingId && state.events.find((x) => x.id === editingId);
+    const date = target ? target.date : curDate;
+    const clash = state.events.find((x) => x.date === date && x.memberId === data.memberId &&
+      x.id !== editingId && x.start < data.end && data.start < x.end);
+    if (clash) return alert(`「${clash.title || '(無題)'}」(${slotLabel(clash.start)}–${slotLabel(clash.end)}) と重なっています。`);
+
+    if (target) Object.assign(target, data, { updatedAt: Date.now() });
+    else state.events.push({ id: uid(), date, ...data, updatedAt: Date.now() });
+    save(); render(); editor.close();
+  });
+
+  $('#fDelete').addEventListener('click', () => {
+    if (!editingId || !confirm('この予定を削除しますか？')) return;
+    state.events = state.events.filter((x) => x.id !== editingId);
+    save(); render(); editor.close();
+  });
+  $('#fCancel').addEventListener('click', () => editor.close());
+
+  // ===== メンバー管理 =====
+  const memberDlg = $('#memberDlg');
+  function renderMembers() {
+    const list = $('#memberList');
+    list.innerHTML = '';
+    for (const m of state.members) {
+      const row = document.createElement('div');
+      row.className = 'member-row';
+      row.innerHTML = `<input type="color" value="${esc(m.color)}" aria-label="色">` +
+        `<input type="text" value="${esc(m.name)}" maxlength="20" aria-label="名前">` +
+        `<button type="button" class="danger" aria-label="削除">✕</button>`;
+      const [color, name, del] = row.children;
+      color.addEventListener('change', () => { m.color = color.value; save(); render(); });
+      name.addEventListener('change', () => { m.name = name.value.trim() || '名無し'; save(); render(); });
+      del.disabled = state.members.length <= 1;
+      del.addEventListener('click', () => {
+        const n = state.events.filter((x) => x.memberId === m.id).length;
+        if (!confirm(`${m.name} を削除しますか？${n ? `（予定 ${n} 件も削除されます）` : ''}`)) return;
+        state.members = state.members.filter((x) => x.id !== m.id);
+        state.events = state.events.filter((x) => x.memberId !== m.id);
+        if (anchor && anchor.memberId === m.id) clearAnchor();
+        save(); render(); renderMembers();
+      });
+      list.append(row);
+    }
+  }
+  $('#members').addEventListener('click', () => { renderMembers(); memberDlg.showModal(); });
+  $('#addMember').addEventListener('click', () => {
+    state.members.push({ id: uid(), name: `メンバー${state.members.length + 1}`, color: COLORS[state.members.length % COLORS.length] });
+    save(); render(); renderMembers();
+    const inputs = $('#memberList').querySelectorAll('input[type=text]');
+    inputs[inputs.length - 1].select();
+  });
+  $('#memberForm').addEventListener('submit', (e) => { e.preventDefault(); memberDlg.close(); });
+
+  // ===== 日付・ズーム =====
+  const dateInput = $('#date');
+  function setDate(d) {
+    curDate = d; dateInput.value = d; clearAnchor(); render();
+  }
+  function shiftDate(days) {
+    const [y, m, d] = curDate.split('-').map(Number);
+    setDate(dateStr(new Date(y, m - 1, d + days)));
+  }
+  dateInput.addEventListener('change', () => dateInput.value && setDate(dateInput.value));
+  $('#prev').addEventListener('click', () => shiftDate(-1));
+  $('#next').addEventListener('click', () => shiftDate(1));
+  $('#today').addEventListener('click', () => { setDate(todayStr()); scrollToNow(); });
+
+  let zoomIdx = Math.min(ZOOMS.length - 1, Math.max(0, Number(readJSON(ZOOM_KEY, 1)) || 0));
+  function applyZoom(keepCenter) {
+    const sc = $('#scroller');
+    const centerSlot = keepCenter ? (sc.scrollTop + sc.clientHeight / 2) / slotHeight() : null;
+    document.documentElement.style.setProperty('--h', ZOOMS[zoomIdx].h + 'px');
+    $('#zoom').textContent = `🔍 ${ZOOMS[zoomIdx].label}`;
+    if (centerSlot !== null) sc.scrollTop = centerSlot * slotHeight() - sc.clientHeight / 2;
+  }
+  $('#zoom').addEventListener('click', () => {
+    zoomIdx = (zoomIdx + 1) % ZOOMS.length;
+    writeJSON(ZOOM_KEY, zoomIdx);
+    applyZoom(true);
+  });
+
+  // ===== 書き出し / 読み込み（簡易共有） =====
+  $('#export').addEventListener('click', () => {
+    const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `schedule-${todayStr()}.json`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  });
+  $('#import').addEventListener('click', () => $('#importFile').click());
+  $('#importFile').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    try {
+      const s = JSON.parse(await file.text());
+      if (!Array.isArray(s.members) || !Array.isArray(s.events) || !s.members.length) throw new Error();
+      if (!confirm('現在のデータを読み込んだ内容で置き換えますか？')) return;
+      state = s; clearAnchor(); save(); render();
+      toast('読み込みました');
+    } catch { alert('ファイルの形式が正しくありません。'); }
+  });
+
+  // ===== 通知（Notification API） =====
+  const notifBtn = $('#notif');
+  function updateNotifBtn() {
+    if (!('Notification' in window)) {
+      notifBtn.textContent = '🔕 通知非対応'; notifBtn.disabled = true; return;
+    }
+    notifBtn.textContent = { granted: '🔔 通知ON', denied: '🔕 通知ブロック中', default: '🔔 通知を許可' }[Notification.permission];
+  }
+  notifBtn.addEventListener('click', async () => {
+    if (Notification.permission === 'default') {
+      await Notification.requestPermission();
+      updateNotifBtn();
+      if (Notification.permission === 'granted') showNotification('通知が有効になりました', '予定の開始前にお知らせします', 'tenmin-test');
+    } else if (Notification.permission === 'granted') {
+      showNotification('テスト通知', 'このように表示されます', 'tenmin-test');
+    } else {
+      alert('通知がブロックされています。ブラウザのサイト設定から通知を許可してください。');
+    }
+  });
+
+  function showNotification(title, body, tag) {
+    toast(`${title}　${body}`, 8000);          // 画面内にも必ず表示
+    if (!('Notification' in window) || Notification.permission !== 'granted') return;
+    try { new Notification(title, { body, tag }); }
+    catch { /* Android Chrome 等は Service Worker 経由でのみ表示可能（本番版で対応） */ }
+  }
+
+  function checkReminders() {
+    const now = Date.now();
+    const notified = readJSON(NOTIFIED_KEY, {});
+    let changed = false;
+    for (const ev of state.events) {
+      if (!ev.remind) continue;
+      const [y, m, d] = ev.date.split('-').map(Number);
+      const start = new Date(y, m - 1, d, 0, ev.start * 10).getTime();
+      const key = `${ev.id}@${ev.date}@${ev.start}@${ev.remind}`;
+      if (now >= start - ev.remind * 60000 && now < start && !notified[key]) {
+        notified[key] = now; changed = true;
+        const member = state.members.find((x) => x.id === ev.memberId);
+        const mins = Math.max(1, Math.ceil((start - now) / 60000));
+        showNotification(`⏰ ${mins}分後: ${ev.title || '(無題)'}`,
+          `${slotLabel(ev.start)}–${slotLabel(ev.end)}${member ? ` / ${member.name}` : ''}`, key);
+      }
+    }
+    for (const k in notified) if (now - notified[k] > 2 * 86400000) { delete notified[k]; changed = true; }
+    if (changed) writeJSON(NOTIFIED_KEY, notified);
+  }
+
+  // ===== トースト =====
+  let toastTimer;
+  function toast(msg, ms = 3000) {
+    const t = $('#toast');
+    t.textContent = msg; t.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => t.classList.remove('show'), ms);
+  }
+
+  // ===== 同期・定期処理 =====
+  // 同じブラウザの別タブで変更されたら即時反映（本番版ではDBのリアルタイム購読に置き換え）
+  window.addEventListener('storage', (e) => {
+    if (e.key === KEY) { state = load(); render(); }
+  });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') clearAnchor(); });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) { drawNowLine(); checkReminders(); } });
+  setInterval(drawNowLine, 60000);
+  setInterval(checkReminders, 15000);
+
+  // ===== 起動 =====
+  dateInput.value = curDate;
+  applyZoom(false);
+  updateNotifBtn();
+  render();
+  scrollToNow();
+  checkReminders();
+})();
+</script>
+</body>
+</html>
