@@ -3,6 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!-- Firebase の接続設定（空なら「この端末のみ」で動作）。設定方法は docs/SETUP.md -->
+<script src="firebase-config.js"></script>
 </head>
 <body>
 <!-- @@ARTIFACT_START@@ ここから下が公開ページ本体（tools/build_artifact.py が切り出す） -->
@@ -150,6 +152,7 @@
   <div class="group">
     <button id="zoom" title="マス目の大きさを切替">🔍 標準</button>
     <button id="print">🖨 印刷</button>
+    <button id="invite" hidden>🔗 招待</button>
     <button id="members">👥 メンバー</button>
     <button id="notif">🔔 通知を許可</button>
     <button id="export" title="データを書き出し">⬇</button>
@@ -196,6 +199,20 @@
     <label>この端末で通知を受け取る予定<select id="notifyFor"></select></label>
     <p class="note" id="memberNote"></p>
     <div class="actions"><button type="submit" class="primary">閉じる</button></div>
+  </form>
+</dialog>
+
+<!-- 招待リンク -->
+<dialog id="inviteDlg">
+  <form id="inviteForm">
+    <h2>仲間を招待</h2>
+    <p class="note">このリンクを送ると、開いた人は同じ予定表を見て編集できます。ログインは不要です。<br>
+      リンクを知っている人は誰でも編集できるので、仲間内だけで共有してください。</p>
+    <input type="text" id="inviteUrl" readonly aria-label="招待リンク">
+    <div class="actions">
+      <button type="button" id="inviteCopy">コピー</button>
+      <button type="submit" class="primary">閉じる</button>
+    </div>
   </form>
 </dialog>
 
@@ -310,6 +327,7 @@
   let state = { members: [], events: [] };
   let mode = 'loading';     // 'loading' | 'shared'（全員で共有） | 'local'（この端末だけ）
   let db = null;
+  let backend = '';         // 共有モードの保存先: 'claude'（claude.ai の共有データ） | 'firebase'
   let readOnly = false;
   let curDate = todayStr();
   let anchor = null;        // タップ操作の開始マス {memberId, slot}
@@ -358,7 +376,9 @@
   }
   function reportWriteError(e) {
     const code = e && e.code;
-    if (code === 'invalid_argument') {
+    if (code === 'rejected') {
+      toast('保存できませんでした。入力内容を確認して、もう一度お試しください。', 5000);
+    } else if (code === 'invalid_argument') {
       readOnly = true;
       updateStatus();
       toast('このページを編集する権限がありません。作成者に「編集者」として招待してもらってください。', 7000);
@@ -419,12 +439,13 @@
 
   function updateStatus() {
     const el = $('#status');
-    el.className = 'status ' + (mode === 'loading' ? '' : mode);
-    el.textContent = mode === 'loading' ? '接続中…'
+    el.className = 'status ' + (mode === 'loading' || mode === 'noboard' ? '' : mode);
+    el.textContent = mode === 'loading' ? '接続中…' : mode === 'noboard' ? '未作成'
       : mode === 'shared' ? (readOnly ? '共有・閲覧のみ' : '共有中')
       : 'この端末のみ';
     el.title = mode === 'shared' ? '予定はこのページを開いている全員にリアルタイムで反映されます'
       : mode === 'local' ? '予定はこのブラウザの中だけに保存されます' : '';
+    $('#invite').hidden = !(mode === 'shared' && backend === 'firebase');
     $('#memberNote').textContent = mode === 'shared'
       ? 'メンバーと予定は、このページを開いている全員に共有されます。'
       : '※ いまはこの端末のブラウザ内だけに保存されます（他の人とは共有されません）。';
@@ -434,6 +455,14 @@
     board.innerHTML = '';
     if (mode === 'loading') {
       board.innerHTML = '<div class="empty"><strong>読み込み中…</strong></div>';
+      return;
+    }
+    if (mode === 'noboard') {
+      board.innerHTML = `<div class="empty"><strong>10分単位で予定を共有</strong>
+        <span>予定表を作って、招待リンクを仲間に送るだけで一緒に使えます。ログインは不要です。</span>
+        <button class="primary" id="newBoard">＋ 新しい予定表を作る</button>
+        <span class="note">招待リンクをもらった人は、そのリンクを開いてください。</span></div>`;
+      $('#newBoard').addEventListener('click', createBoard);
       return;
     }
     if (!state.members.length) {
@@ -674,7 +703,10 @@
     sel.value = state.members.some((m) => m.id === cur) ? cur : '';
     $('#addMember').disabled = readOnly;
   }
-  function openMembers() { renderMembers(); memberDlg.showModal(); }
+  function openMembers() {
+    if (mode === 'noboard' || mode === 'loading') return toast('まず予定表を作ってください。');
+    renderMembers(); memberDlg.showModal();
+  }
   $('#members').addEventListener('click', openMembers);
   $('#notifyFor').addEventListener('change', (e) => writeJSON(NOTIFY_FOR_KEY, e.target.value));
   $('#addMember').addEventListener('click', async () => {
@@ -765,6 +797,7 @@
 
   $('#import').addEventListener('click', () => {
     if (readOnly) return toast('閲覧のみのため、読み込みはできません。');
+    if (mode === 'noboard' || mode === 'loading') return toast('まず予定表を作ってください。');
     $('#importFile').click();
   });
   $('#importFile').addEventListener('change', async (e) => {
@@ -1029,10 +1062,73 @@
   }
 
   const hasClaude = () => !!(window.claude && typeof window.claude.use === 'function');
-  async function connectShared() {
+  async function connectClaude() {
     if (!hasClaude()) return null;
     try { return await window.claude.use('db'); } catch { return null; }
   }
+
+  // ----- Firebase（誰でもリンクで参加できる共有） -----
+  const FIREBASE_SDK = 'https://www.gstatic.com/firebasejs/10.14.1/';
+  const firebaseConfig = () => {
+    const c = window.FIREBASE_CONFIG;
+    return !FRAMED && c && c.apiKey && c.projectId ? c : null;
+  };
+  // 予定表ID（URL の ?b=）。推測できない長さのランダム文字列
+  const boardId = () => {
+    const b = new URLSearchParams(location.search).get('b');
+    return b && /^[A-Za-z0-9_-]{16,64}$/.test(b) ? b : null;
+  };
+  function createBoard() {
+    const bytes = crypto.getRandomValues(new Uint8Array(15));
+    const id = btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_');
+    location.search = '?b=' + id;
+  }
+  // Firestore を、claude.ai の共有データと同じ形（collection().doc().set/delete, onSnapshot）で包む
+  async function connectFirebase(cfg, board) {
+    const [appM, authM, fsM] = await Promise.all([
+      import(FIREBASE_SDK + 'firebase-app.js'),
+      import(FIREBASE_SDK + 'firebase-auth.js'),
+      import(FIREBASE_SDK + 'firebase-firestore.js'),
+    ]);
+    const app = appM.initializeApp(cfg);
+    await authM.signInAnonymously(authM.getAuth(app));
+    const fs = fsM.getFirestore(app);
+    const mapErr = (e) => {
+      const c = e && e.code;
+      throw { code: c === 'permission-denied' ? 'rejected' : c === 'resource-exhausted' ? 'resource_exhausted'
+        : c === 'unavailable' ? 'unavailable' : 'unknown', message: String(e && e.message) };
+    };
+    return {
+      collection: (name) => ({
+        doc: (id) => ({
+          set: (data) => fsM.setDoc(fsM.doc(fs, 'boards', board, name, id), data).catch(mapErr),
+          delete: () => fsM.deleteDoc(fsM.doc(fs, 'boards', board, name, id)).catch(mapErr),
+        }),
+        onSnapshot: (next, error) => fsM.onSnapshot(fsM.collection(fs, 'boards', board, name),
+          (snap) => next({ docs: snap.docs.map((d) => ({ id: d.id, exists: true, data: () => d.data() })) }),
+          error),
+      }),
+    };
+  }
+
+  // 招待リンク
+  const inviteDlg = $('#inviteDlg');
+  $('#invite').addEventListener('click', async () => {
+    const url = location.href;
+    if (navigator.share) {
+      try { await navigator.share({ title: '10分スケジュール', text: '予定表に招待します', url }); return; }
+      catch (e) { if (e && e.name === 'AbortError') return; }
+    }
+    $('#inviteUrl').value = url;
+    $('#inviteCopy').textContent = 'コピー';
+    inviteDlg.showModal();
+  });
+  $('#inviteCopy').addEventListener('click', () => {
+    const input = $('#inviteUrl'), btn = $('#inviteCopy');
+    const fallback = () => { input.focus(); input.select(); btn.textContent = '選択しました（長押しでコピー）'; };
+    try { navigator.clipboard.writeText(input.value).then(() => { btn.textContent = 'コピーしました'; }, fallback); } catch { fallback(); }
+  });
+  $('#inviteForm').addEventListener('submit', (e) => { e.preventDefault(); inviteDlg.close(); });
 
   function startLocal(reason) {
     mode = 'local';
@@ -1045,8 +1141,9 @@
     if (reason) toast(reason, 6000);
   }
 
-  function startShared(store) {
+  function startShared(store, via) {
     db = store;
+    backend = via;
     mode = 'shared';
     let gotMembers = false, gotEvents = false, scrolled = false;
     const ready = () => {
@@ -1085,11 +1182,23 @@
     window.claude.use('downloads').then((d) => { downloads = d; updateSaveButtons(); }, () => {});
   }
 
-  connectShared().then((store) => {
-    if (store) startShared(store);
-    else startLocal(FRAMED ? '共有データに接続できないため、この端末だけで動作しています。' : '');
+  (async () => {
+    const cfg = firebaseConfig();
+    if (cfg) {
+      const b = boardId();
+      if (!b) { mode = 'noboard'; updateStatus(); render(); return; }
+      try {
+        startShared(await connectFirebase(cfg, b), 'firebase');
+      } catch {
+        startLocal('共有サーバーに接続できないため、この端末だけで動作しています。通信状態を確認して開き直してください。');
+      }
+    } else {
+      const store = await connectClaude();
+      if (store) startShared(store, 'claude');
+      else startLocal(FRAMED ? '共有データに接続できないため、この端末だけで動作しています。' : '');
+    }
     checkReminders();
-  });
+  })();
 })();
 </script>
 <!-- @@ARTIFACT_END@@ -->

@@ -16,11 +16,16 @@
 | モード | 開き方 | データの保存先 |
 |---|---|---|
 | 共有中 | claude.ai で公開したページを開く | 共有データベース。開いている全員にリアルタイム反映 |
+| 共有中（リンク） | Firebase を設定して Web 公開したページ | Firebase。招待リンクを知っている人全員に反映（ログイン不要） |
 | この端末のみ | `index.html` をブラウザで直接開く | そのブラウザの中だけ（サンプル予定入り） |
 
 画面左上のバッジで、いまどちらのモードか分かります。
 
-## 仲間内で試す手順（共有モード）
+## 一般公開（誰でもリンクで参加）
+
+手順は [docs/SETUP.md](docs/SETUP.md) を参照（Firebase の準備 → GitHub Pages などで公開）。
+
+## claude.ai で仲間内だけで試す手順
 
 1. 公開ページを開き、右上の共有メニューから仲間を招待する
    - 予定を書き込むには **「編集者」** など書き込みできる権限が必要です（閲覧者は見るだけ）
@@ -32,7 +37,9 @@
 ## 開発者向け
 
 - `index.html` … 本体（1ファイル）。`<!-- @@ARTIFACT_START@@ -->` と `<!-- @@ARTIFACT_END@@ -->` の間が公開ページ部分
-- `tools/build_artifact.py <出力パス>` … 公開用の本体部分を切り出す
+- `firebase-config.js` … Firebase の接続設定（null なら使わない）
+- `firestore.rules` … Firestore のアクセスルール（Firebase コンソールに貼り付け）
+- `tools/build_artifact.py <出力パス>` … claude.ai 公開用の本体部分を切り出す
 - `tests/e2e.js` … 動作テスト（Playwright + Chromium）。`node tests/e2e.js` で実行
-  - この端末モード・スマホ幅・共有モード（2人同時編集を疑似DBで再現）の計40項目
+  - この端末モード・スマホ幅・claude.ai 共有モード・Firebase モード（いずれも疑似サーバーで2人同時編集を再現）の計49項目
 - 設計メモ: [docs/DESIGN.md](docs/DESIGN.md)（要件整理・技術構成・UI・通知方針・本番化手順）

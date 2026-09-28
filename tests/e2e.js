@@ -292,6 +292,117 @@ const toastText = (page) => page.$eval('#toast', (t) => t.textContent);
     await ctx.close();
   }
 
+  // ---------- Firebase モード（リンクを知っている人で共有） ----------
+  console.log('Firebase モード（疑似サーバー）');
+  {
+    const http = require('http');
+    const root = path.resolve(__dirname, '..');
+    const server = http.createServer((req, res) => {
+      const u = new globalThis.URL(req.url, 'http://x');
+      const file = path.join(root, u.pathname === '/' ? 'index.html' : decodeURIComponent(u.pathname));
+      if (!file.startsWith(root) || !fs.existsSync(file)) { res.writeHead(404); return res.end(); }
+      res.writeHead(200, { 'Content-Type': file.endsWith('.js') ? 'text/javascript' : 'text/html; charset=utf-8' });
+      fs.createReadStream(file).pipe(res);
+    });
+    await new Promise((r) => server.listen(0, r));
+    const base = `http://127.0.0.1:${server.address().port}/index.html`;
+
+    const MOCK = {
+      'firebase-app.js': 'export function initializeApp(c) { return { c }; }',
+      'firebase-auth.js': 'export function getAuth() { return {}; } export async function signInAnonymously() { return { user: { uid: "u" } }; }',
+      'firebase-firestore.js': `
+        const KEY = '__fsmock';
+        const read = () => JSON.parse(localStorage.getItem(KEY) || '{}');
+        const subs = [];
+        const bc = new BroadcastChannel('fsmock');
+        const emit = () => subs.forEach((f) => f());
+        bc.onmessage = emit;
+        const save = (d) => { localStorage.setItem(KEY, JSON.stringify(d)); emit(); bc.postMessage(1); };
+        export const getFirestore = () => ({});
+        export const doc = (fs, ...p) => ({ path: p.join('/') });
+        export const collection = (fs, ...p) => ({ path: p.join('/') });
+        export async function setDoc(ref, data) {
+          if (localStorage.getItem('__deny')) throw { code: 'permission-denied', message: 'denied' };
+          const d = read(); d[ref.path] = data; save(d);
+        }
+        export async function deleteDoc(ref) { const d = read(); delete d[ref.path]; save(d); }
+        export function onSnapshot(col, next) {
+          const fire = () => {
+            const docs = Object.entries(read())
+              .filter(([k]) => k.startsWith(col.path + '/') && !k.slice(col.path.length + 1).includes('/'))
+              .map(([k, v]) => ({ id: k.split('/').pop(), data: () => v }));
+            next({ docs });
+          };
+          subs.push(fire); setTimeout(fire, 0);
+          return () => {};
+        }`,
+    };
+    const ctx = await browser.newContext({ viewport: { width: 1100, height: 800 } });
+    await ctx.addInitScript(() => { try { delete Navigator.prototype.share; } catch {} });
+    await ctx.route('**/firebase-config.js', (route) => route.fulfill({
+      contentType: 'text/javascript',
+      body: "window.FIREBASE_CONFIG = { apiKey: 'test', projectId: 'test' };",
+    }));
+    await ctx.route('https://www.gstatic.com/firebasejs/**', (route) => {
+      const name = route.request().url().split('/').pop();
+      route.fulfill({ contentType: 'text/javascript', headers: { 'Access-Control-Allow-Origin': '*' }, body: MOCK[name] || '' });
+    });
+    const errors = [];
+    const a = await ctx.newPage();
+    a.on('pageerror', (e) => errors.push(e.message));
+    await a.goto(base);
+    await a.waitForSelector('#newBoard');
+    check('最初は「新しい予定表を作る」画面', true);
+    await a.click('#newBoard');
+    await a.waitForSelector('#emptyAdd');
+    const boardUrl = a.url();
+    check('予定表IDがURLに入る', /\?b=[A-Za-z0-9_-]{20}$/.test(boardUrl), boardUrl);
+    check('「共有中」と招待ボタンが出る', (await a.textContent('#status')) === '共有中' && !(await a.$eval('#invite', (e) => e.hidden)));
+
+    await a.click('#emptyAdd');
+    await a.click('#addMember');
+    await a.keyboard.type('Aさん');
+    await a.keyboard.press('Tab');
+    await a.click('#memberForm button[type=submit]');
+    await scrollTo(a, 50);
+    const { r, h } = await slotBox(a, 0);
+    await a.mouse.click(r.x + 20, r.y + h * 54 + 2);
+    await a.mouse.click(r.x + 20, r.y + h * 56 + 2);
+    await a.fill('#fTitle', 'リンク共有の予定');
+    await a.click('#editorForm button[type=submit]');
+
+    const b = await ctx.newPage();
+    b.on('pageerror', (e) => errors.push(e.message));
+    await b.goto(boardUrl);
+    await b.waitForSelector('.ev');
+    check('招待リンクを開いた人に同じ予定が見える', (await evTexts(b)).some((t) => t.includes('リンク共有の予定09:00–09:30')));
+    await b.click('.ev');
+    await b.fill('#fTitle', 'Bが変更');
+    await b.click('#editorForm button[type=submit]');
+    await a.waitForTimeout(300);
+    check('Bの変更がAにすぐ反映される', (await evTexts(a)).some((t) => t.includes('Bが変更')));
+
+    const c = await ctx.newPage();
+    await c.goto(base);
+    await c.click('#newBoard');
+    await c.waitForSelector('#emptyAdd');
+    check('別の予定表には他の予定表の中身が出ない', (await c.$$('.ev')).length === 0 && c.url() !== boardUrl);
+
+    await a.click('#invite');
+    check('招待画面にリンクが表示される', (await a.inputValue('#inviteUrl')) === boardUrl);
+    await a.click('#inviteForm button[type=submit]');
+
+    await a.evaluate(() => localStorage.setItem('__deny', '1'));
+    await a.click('.ev');
+    await a.fill('#fTitle', '拒否される変更');
+    await a.click('#editorForm button[type=submit]');
+    await a.waitForTimeout(200);
+    check('サーバーに拒否されたら保存されず案内が出る', (await toastText(a)).includes('保存できませんでした') && (await a.$eval('#editor', (d) => d.open)));
+    check('ページ内エラーなし', errors.length === 0, errors.join(' / '));
+    await ctx.close();
+    server.close();
+  }
+
   await browser.close();
   console.log(`\n結果: ${passed} 件成功 / ${failed} 件失敗`);
   process.exit(failed ? 1 : 0);
