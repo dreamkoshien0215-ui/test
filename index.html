@@ -94,6 +94,18 @@
     background: #111827; color: #fff; padding: 10px 14px; border-radius: 10px; font-size: 14px;
     z-index: 10; opacity: 0; pointer-events: none; transition: opacity .2s; }
   #toast.show { opacity: 1; }
+  #printDlg { width: min(640px, 94vw); }
+  .sheet { display: block; width: 100%; max-height: 55vh; object-fit: contain; background: #fff;
+    border: 1px solid var(--line-strong); border-radius: 4px; -webkit-touch-callout: default; }
+  .row { flex-wrap: wrap; }
+  .row > * { min-width: 90px; }
+  #printArea { display: none; }
+  @media print {
+    body > *:not(#printArea) { display: none !important; }
+    html, body { height: auto; background: #fff; }
+    #printArea { display: block; }
+    #printArea img { display: block; width: 100%; height: 100vh; object-fit: contain; }
+  }
 </style>
 </head>
 <body>
@@ -108,6 +120,7 @@
   <div class="spacer"></div>
   <div class="group">
     <button id="zoom" title="マス目の大きさを切替">🔍 標準</button>
+    <button id="print">🖨 印刷</button>
     <button id="members">👥 メンバー</button>
     <button id="notif">🔔 通知を許可</button>
     <button id="export" title="JSONで書き出し">⬇</button>
@@ -155,6 +168,31 @@
     <div class="actions"><button type="submit" class="primary">閉じる</button></div>
   </form>
 </dialog>
+
+<!-- 印刷・画像化 -->
+<dialog id="printDlg">
+  <form id="printForm">
+    <h2>印刷・画像にする</h2>
+    <div class="row">
+      <label>開始<select id="pFrom"></select></label>
+      <label>終了<select id="pTo"></select></label>
+      <label>用紙<select id="pOrient">
+        <option value="portrait">A4 縦</option>
+        <option value="landscape">A4 横</option>
+      </select></label>
+    </div>
+    <img id="pImg" class="sheet" alt="印刷プレビュー">
+    <p class="note">PCは「印刷」でそのまま印刷できます。スマホは「画像を保存」してから、写真アプリなどで印刷してください。</p>
+    <div class="actions">
+      <button type="button" id="pSave">画像を保存</button>
+      <button type="button" class="primary" id="pPrint">印刷</button>
+      <button type="submit">閉じる</button>
+    </div>
+  </form>
+</dialog>
+
+<div id="printArea"><img id="printImg" alt=""></div>
+<style id="printPage"></style>
 
 <div id="toast" role="status" aria-live="polite"></div>
 
@@ -519,6 +557,145 @@
     for (const k in notified) if (now - notified[k] > 2 * 86400000) { delete notified[k]; changed = true; }
     if (changed) writeJSON(NOTIFIED_KEY, notified);
   }
+
+  // ===== 印刷・画像化（A4サイズの画像を描いて印刷／保存） =====
+  const printDlg = $('#printDlg');
+  const WEEK = ['日', '月', '火', '水', '木', '金', '土'];
+  const SHEET_FONT = '"Hiragino Sans", "Noto Sans JP", "Yu Gothic", system-ui, sans-serif';
+  let sheetUrl = '';
+  $('#pFrom').innerHTML = Array.from({ length: 24 }, (_, i) => `<option value="${i}">${pad(i)}:00</option>`).join('');
+  $('#pTo').innerHTML = Array.from({ length: 24 }, (_, i) => `<option value="${i + 1}">${pad(i + 1)}:00</option>`).join('');
+
+  function defaultRange() {
+    const evs = state.events.filter((e) => e.date === curDate);
+    if (!evs.length) return [8, 20];
+    const a = Math.min(...evs.map((e) => e.start)), b = Math.max(...evs.map((e) => e.end));
+    return [Math.min(8, Math.floor(a / 6)), Math.max(20, Math.ceil(b / 6))];
+  }
+  $('#print').addEventListener('click', () => {
+    const [f, t] = defaultRange();
+    $('#pFrom').value = f; $('#pTo').value = t;
+    $('#pOrient').value = state.members.length > 4 ? 'landscape' : 'portrait';
+    printDlg.showModal();
+    updateSheet();
+  });
+  ['#pFrom', '#pTo', '#pOrient'].forEach((id) => $(id).addEventListener('change', updateSheet));
+  $('#printForm').addEventListener('submit', (e) => { e.preventDefault(); printDlg.close(); });
+
+  function updateSheet() {
+    const f = Number($('#pFrom').value);
+    let t = Number($('#pTo').value);
+    if (t <= f) { t = Math.min(24, f + 1); $('#pTo').value = t; }
+    sheetUrl = drawSheet(f, t, $('#pOrient').value === 'landscape').toDataURL('image/png');
+    $('#pImg').src = sheetUrl;
+  }
+
+  function fitText(g, text, x, y, max) {
+    if (g.measureText(text).width <= max) return g.fillText(text, x, y);
+    let s = text;
+    while (s.length > 1 && g.measureText(s + '…').width > max) s = s.slice(0, -1);
+    g.fillText(s + '…', x, y);
+  }
+  function roundRect(g, x, y, w, h, r) {
+    r = Math.min(r, w / 2, h / 2);
+    g.beginPath();
+    g.moveTo(x + r, y);
+    g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r);
+    g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r);
+    g.closePath();
+  }
+
+  // A4 を 300dpi 相当（2480×3508px）で描画
+  function drawSheet(fromH, toH, landscape) {
+    const W = landscape ? 3508 : 2480, H = landscape ? 2480 : 3508, M = 110;
+    const cv = document.createElement('canvas');
+    cv.width = W; cv.height = H;
+    const g = cv.getContext('2d');
+    g.fillStyle = '#ffffff'; g.fillRect(0, 0, W, H);
+
+    const [y, mo, d] = curDate.split('-').map(Number);
+    const now = new Date();
+    g.textBaseline = 'alphabetic';
+    g.fillStyle = '#1c2330'; g.font = `bold 64px ${SHEET_FONT}`;
+    g.fillText(`${y}年${mo}月${d}日（${WEEK[new Date(y, mo - 1, d).getDay()]}）のスケジュール`, M, M + 60);
+    g.fillStyle = '#667085'; g.font = `30px ${SHEET_FONT}`;
+    g.fillText(`${pad(fromH)}:00–${pad(toH)}:00　1マス＝10分`, M, M + 110);
+    g.textAlign = 'right';
+    g.fillText(`出力 ${dateStr(now)} ${pad(now.getHours())}:${pad(now.getMinutes())}`, W - M, M + 110);
+    g.textAlign = 'left';
+
+    const members = state.members;
+    const top = M + 160, headH = 80, timeW = 130, bottom = H - M;
+    const colW = (W - 2 * M - timeW) / members.length;
+    const from = fromH * 6, to = toH * 6, n = to - from;
+    const gy = top + headH, rowH = (bottom - gy) / n;
+
+    g.fillStyle = '#f1f4f9'; g.fillRect(M, top, W - 2 * M, headH);
+    g.textBaseline = 'middle';
+    members.forEach((m, i) => {
+      const x = M + timeW + i * colW;
+      g.fillStyle = m.color; g.beginPath(); g.arc(x + 34, top + headH / 2, 13, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#1c2330'; g.font = `bold 34px ${SHEET_FONT}`;
+      fitText(g, m.name, x + 58, top + headH / 2, colW - 70);
+    });
+
+    for (let i = 0; i <= n; i++) {
+      const s = from + i, yy = gy + i * rowH, hour = s % 6 === 0, half = s % 3 === 0;
+      g.strokeStyle = hour ? '#8a94a6' : half ? '#d0d5dd' : '#eaecf0';
+      g.lineWidth = hour ? 3 : 2;
+      g.setLineDash(hour || half ? [] : [8, 8]);
+      g.beginPath(); g.moveTo(M + (hour ? 0 : timeW), yy); g.lineTo(W - M, yy); g.stroke();
+      if (hour && i < n) {
+        g.fillStyle = '#475467'; g.font = `bold 30px ${SHEET_FONT}`; g.textBaseline = 'top';
+        g.fillText(slotLabel(s), M + 10, yy + 8);
+      }
+    }
+    g.setLineDash([]);
+    g.strokeStyle = '#d0d5dd'; g.lineWidth = 2;
+    for (let i = 0; i <= members.length; i++) {
+      const x = M + timeW + i * colW;
+      g.beginPath(); g.moveTo(x, top); g.lineTo(x, bottom); g.stroke();
+    }
+    g.strokeStyle = '#8a94a6'; g.lineWidth = 3; g.strokeRect(M, top, W - 2 * M, bottom - top);
+
+    const fs = Math.max(18, Math.min(30, rowH * 0.8));
+    members.forEach((m, i) => {
+      const x = M + timeW + i * colW;
+      for (const ev of state.events) {
+        if (ev.date !== curDate || ev.memberId !== m.id) continue;
+        const a = Math.max(ev.start, from), b = Math.min(ev.end, to);
+        if (b <= a) continue;
+        const ex = x + 6, ey = gy + (a - from) * rowH + 3, ew = colW - 12, eh = (b - a) * rowH - 6;
+        g.fillStyle = m.color; roundRect(g, ex, ey, ew, eh, 10); g.fill();
+        g.save(); g.beginPath(); g.rect(ex, ey, ew, eh); g.clip();
+        g.fillStyle = '#ffffff';
+        const title = ev.title || '(無題)', time = `${slotLabel(ev.start)}–${slotLabel(ev.end)}`;
+        if (eh >= fs * 2.6) {
+          g.textBaseline = 'top';
+          g.font = `bold ${fs}px ${SHEET_FONT}`; fitText(g, title, ex + 12, ey + 8, ew - 24);
+          g.font = `${Math.round(fs * 0.85)}px ${SHEET_FONT}`; fitText(g, time, ex + 12, ey + 8 + fs * 1.3, ew - 24);
+        } else {
+          g.textBaseline = 'middle';
+          g.font = `bold ${fs}px ${SHEET_FONT}`; fitText(g, `${title}  ${time}`, ex + 12, ey + eh / 2, ew - 24);
+        }
+        g.restore();
+      }
+    });
+    return cv;
+  }
+
+  $('#pSave').addEventListener('click', () => {
+    const a = document.createElement('a');
+    a.href = sheetUrl;
+    a.download = `schedule-${curDate}.png`;
+    a.click();
+  });
+  $('#pPrint').addEventListener('click', () => {
+    $('#printPage').textContent = `@page { size: A4 ${$('#pOrient').value}; margin: 0; }`;
+    const img = $('#printImg');
+    img.onload = () => { printDlg.close(); setTimeout(() => window.print(), 50); };
+    img.src = sheetUrl;
+  });
 
   // ===== トースト =====
   let toastTimer;
