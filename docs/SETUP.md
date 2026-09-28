@@ -1,64 +1,158 @@
-# 一般公開の手順（Firebase + Webホスティング）
+# 一般公開の手順（Firebase + GitHub Pages）
 
 誰でもリンクを開くだけで使える（ログイン不要）状態にするための手順です。
-所要時間の目安は 15〜20分。料金は Firebase の無料プラン（Spark）の範囲で使えます。
+**PCのブラウザでの作業をおすすめします**（Firebase の管理画面はスマホだと操作しにくいため）。
+料金は Firebase の無料プラン（Spark）の範囲で使えます。クレジットカードの登録は不要です。
 
-> 仕組み: 「新しい予定表を作る」を押すと、推測できないランダムなIDが付いたリンク（`…/index.html?b=xxxx`）ができます。
-> このリンクを知っている人だけが、その予定表を見て編集できます。仲間内だけで共有してください。
+※ 管理画面のボタン名や配置は変わることがあります。見つからないときは近い名前のものを探してください。
+
+## 全体の流れ
+
+| 順番 | やること | 所要時間 | 誰が |
+|---|---|---|---|
+| 1 | Firebase プロジェクトを作る | 3分 | あなた |
+| 2 | 匿名ログインを有効にする | 2分 | あなた |
+| 3 | データベースを作る | 3分 | あなた |
+| 4 | データベースのルールを貼り付ける | 2分 | あなた |
+| 5 | 接続設定（firebaseConfig）をコピーして Claude に送る | 3分 | あなた |
+| 6 | 接続設定をコードに入れてプッシュ | — | Claude |
+| 7 | GitHub Pages で公開する | 5分 | あなた |
+| 8 | 公開URLを Firebase に登録する | 2分 | あなた |
+| 9 | 動作確認 | 3分 | あなた（＋仲間1人） |
 
 ---
 
-## 1. Firebase の準備
+## 1. Firebase プロジェクトを作る
 
 1. https://console.firebase.google.com を開き、Google アカウントでログイン
-2. **「プロジェクトを作成」**（名前は例: `tenmin-schedule`）
-   - Google アナリティクスはオフで構いません
-3. 左メニュー **「構築」→「Authentication」→「始める」**
-   - 「ログイン方法」タブ → **「匿名」** を選び **有効にする** → 保存
-4. 左メニュー **「構築」→「Firestore Database」→「データベースの作成」**
-   - ロケーション: **asia-northeast1（東京）**
-   - **「本番環境モード」** を選んで作成
-5. Firestore の **「ルール」タブ** を開き、中身をすべて消して、このリポジトリの [`firestore.rules`](../firestore.rules) の内容を貼り付け → **「公開」**
-6. 左上の ⚙ **「プロジェクトの設定」** → 下の「マイアプリ」→ **ウェブ（`</>`）** アイコン
-   - アプリのニックネーム（例: `web`）を入れて登録（Firebase Hosting のチェックは不要）
-   - 表示された `const firebaseConfig = { ... }` の **中身をコピー**
-7. コピーした値を Claude に貼ってもらえれば `firebase-config.js` に設定します
-   （自分で書く場合は `firebase-config.js` の `window.FIREBASE_CONFIG = null;` を置き換え）
+2. **「プロジェクトを作成」**（または「Firebase プロジェクトを使ってみる」）をクリック
+3. プロジェクト名を入力（例: `tenmin-schedule`）→ 規約にチェック →「続行」
+   - 名前の下に表示される「プロジェクトID」は後で使いますが、メモは不要です
+4. 「Gemini」や「Google アナリティクス」を有効にするか聞かれたら、**どちらもオフ**で「続行」
+5. 「プロジェクトを作成」→ 30秒ほど待って「続行」
+   → プロジェクトの管理画面（左にメニューがある画面）が開けば完了
 
-> `apiKey` などの値は Web アプリ用の公開識別子で、秘密情報ではありません。
-> 読み書きできる範囲は手順5のルールで制限しています。
+## 2. 匿名ログインを有効にする
+
+アプリを開いた人を、名前やメールなしで自動的に「ログイン済み」にするための設定です（予定表を荒らされにくくするため）。
+
+1. 左メニューの **「構築」**（Build）→ **「Authentication」**
+2. **「始める」** をクリック
+3. 上のタブ **「ログイン方法」**（Sign-in method）を開く
+4. プロバイダの一覧から **「匿名」**（Anonymous）をクリック
+   - 一覧が出ないときは「新しいプロバイダを追加」から「匿名」
+5. **「有効にする」のスイッチをオン** →「保存」
+   → 一覧で「匿名」が「有効」になっていれば完了
+
+## 3. データベースを作る
+
+1. 左メニューの **「構築」→「Firestore Database」**
+2. **「データベースを作成」** をクリック
+3. エディション（Standard / Enterprise）を聞かれたら **Standard**
+4. データベースID は **(default)** のまま
+5. ロケーション（保存場所）は **`asia-northeast1 (Tokyo)`** を選ぶ →「次へ」
+   - ⚠ ロケーションは後から変更できません
+6. **「本番環境モードで開始する」**（production mode）を選ぶ →「作成」
+   → 空のデータ画面が表示されれば完了
+
+## 4. データベースのルールを貼り付ける
+
+「予定表のリンクを知っている人だけが読み書きでき、変なデータは保存できない」ようにする設定です。
+
+1. Firestore Database の画面上部のタブ **「ルール」**（Rules）を開く
+2. 表示されている文字を **すべて選択して削除**（Ctrl+A → Delete、Mac は ⌘+A）
+3. このリポジトリの [`firestore.rules`](../firestore.rules) の中身を **全部コピーして貼り付け**
+   - GitHub で開いた場合は、ファイル右上の「コピー」アイコン（Copy raw file）で全文コピーできます
+4. **「公開」**（Publish）をクリック
+   → 「ルールが公開されました」と出れば完了
+
+## 5. 接続設定（firebaseConfig）をコピーする
+
+1. 左上の **「プロジェクトの概要」の横の ⚙（歯車）→「プロジェクトの設定」**
+2. 「全般」タブのいちばん下 **「マイアプリ」** にある **`</>`（ウェブ）アイコン** をクリック
+3. アプリのニックネームに `web` などと入力
+   - 「Firebase Hosting も設定します」の **チェックは不要**
+4. **「アプリを登録」**
+5. 「Firebase SDK の追加」画面に、次のような部分が表示されます
+
+   ```js
+   const firebaseConfig = {
+     apiKey: "AIza....",
+     authDomain: "tenmin-schedule.firebaseapp.com",
+     projectId: "tenmin-schedule",
+     storageBucket: "tenmin-schedule.firebasestorage.app",
+     messagingSenderId: "1234567890",
+     appId: "1:1234567890:web:abcdef..."
+   };
+   ```
+
+6. この **`{` から `}` まで** をコピーして、Claude とのチャットに貼り付けて送る
+7. 「コンソールに進む」で画面を閉じてOK
+   - あとで見直したいときは、同じ「プロジェクトの設定 → マイアプリ」の「SDK の設定と構成」→「構成」で表示できます
+
+> この値は Web アプリ用の公開識別子で、パスワードのような秘密情報ではありません。
+> 公開ページのソースにも含まれる前提の値で、読み書きできる範囲は手順4のルールで守っています。
+
+## 6. （Claude の作業）接続設定をコードに入れる
+
+受け取った値を `firebase-config.js` に設定してプッシュします。完了の連絡を待ってから手順7に進んでください。
 
 ---
 
-## 2. Webに公開する（どちらか一方）
+## 7. GitHub Pages で公開する
 
-### A. GitHub Pages（おすすめ・無料）
+GitHub Pages を無料で使うには、リポジトリを「公開（Public）」にする必要があります。GitHub の画面は英語です。
 
-GitHub Pages は **公開リポジトリ** なら無料です（このリポジトリは現在「非公開」）。
+### 7-1. リポジトリを公開にする
 
-1. GitHub でリポジトリを開く → **Settings → General** の一番下「Danger Zone」→ **Change visibility → Public**
-   - ソースコードが誰でも見られるようになります（予定のデータは Firebase 側なので見えません）
-2. **Settings → Pages**
-   - Source: **Deploy from a branch**
-   - Branch: **main**（または `claude/browser-schedule-sharing-tool-7dhewf`）／ **/(root)** → Save
-3. 1〜2分後、`https://dreamkoshien0215-ui.github.io/test/` で開けます
+> 公開すると、コード・変更履歴（コミットした人の名前やメールアドレスを含む）が誰でも見られるようになります。
+> 予定の中身は Firebase に保存されるので、GitHub からは見えません。
 
-### B. Netlify Drop（リポジトリを非公開のままにしたい場合）
+1. https://github.com/dreamkoshien0215-ui/test を開く
+2. 上のタブの右端 **「⚙ Settings」**
+3. 「General」のページを一番下までスクロール → 赤枠の **「Danger Zone」**
+4. **「Change repository visibility」** の **「Change visibility」** →「**Change to public**」
+5. 確認画面が数回出るので、内容を読んで進む（最後にリポジトリ名 `dreamkoshien0215-ui/test` の入力を求められたら入力）
 
-1. https://app.netlify.com/drop を開く（無料アカウントを作成）
-2. `index.html` と `firebase-config.js` を入れたフォルダをドラッグ＆ドロップ
-3. 表示された `https://xxxx.netlify.app` が公開URLです
-   - 更新するときは同じ画面から再度ドロップ
+### 7-2. Pages を有効にする
 
----
+1. 同じ Settings の左メニュー「Code and automation」の中の **「Pages」**
+2. 「Build and deployment」の **Source** を **「Deploy from a branch」**
+3. **Branch** のプルダウンで **`claude/browser-schedule-sharing-tool-7dhewf`** を選び、右のフォルダは **`/ (root)`** →「Save」
+   - main ブランチに取り込んだ後なら `main` を選んでも同じです
+4. 1〜3分待ってページを再読み込み →
+   上部に **「Your site is live at https://dreamkoshien0215-ui.github.io/test/」** と出れば公開完了
+   - 進み具合はリポジトリの「Actions」タブの「pages build and deployment」で見られます
 
-## 3. 最後の設定
+<details>
+<summary>リポジトリを非公開のままにしたい場合（Netlify Drop）</summary>
 
-1. Firebase の **Authentication →「設定」→「承認済みドメイン」** に公開URLのドメインを追加
-   - GitHub Pages: `dreamkoshien0215-ui.github.io`
-   - Netlify: `xxxx.netlify.app`
-2. 公開URLを開く → **「＋ 新しい予定表を作る」** → 「👥 メンバー」で自分を追加
-3. **「🔗 招待」** でリンクを仲間に送る（スマホでは LINE などの共有画面が開きます）
+1. GitHub のリポジトリ画面で、ブランチを `claude/browser-schedule-sharing-tool-7dhewf` に切り替え →
+   緑の「Code」ボタン →「Download ZIP」→ ダウンロードしたZIPを展開
+2. https://app.netlify.com/drop を開き、無料アカウントを作成（GitHub かメールで登録）
+3. 展開したフォルダをページにドラッグ＆ドロップ
+4. 表示された `https://（ランダムな名前）.netlify.app` が公開URL
+   - 名前は「Site configuration → Change site name」で変更できます
+   - コードを更新したときは、同じ手順でもう一度ドロップします
+</details>
+
+## 8. 公開URLを Firebase に登録する
+
+1. Firebase の **「Authentication」→ 上のタブ「設定」（Settings）→ 左の「承認済みドメイン」**
+2. **「ドメインを追加」** → `dreamkoshien0215-ui.github.io` と入力（`https://` や `/test/` は付けない）→「追加」
+   - Netlify の場合は `（名前）.netlify.app`
+
+## 9. 動作確認
+
+1. PCかスマホで **https://dreamkoshien0215-ui.github.io/test/** を開く
+2. 左上のバッジが **「未作成」** で「＋ 新しい予定表を作る」が表示される → 押す
+3. バッジが **「共有中」** になる → 「👥 メンバー」で自分を追加 → 予定を1つ入れる
+4. **「🔗 招待」** でリンクを仲間1人に送り、開いてもらう
+5. 相手の画面に同じ予定が出る・相手が入れた予定が自分の画面にすぐ出る → **公開完了**
+6. 使う人は「🔔 通知を許可」を押し、メンバー画面で「◯◯ の予定だけ」を選ぶ
+
+> 予定表を作ったあとのリンク（`…/test/?b=xxxx`）は、ブックマークやホーム画面への追加をしておくと便利です。
+> リンクをなくすとその予定表に戻れません。
 
 ---
 
@@ -66,10 +160,12 @@ GitHub Pages は **公開リポジトリ** なら無料です（このリポジ�
 
 | 症状 | 確認すること |
 |---|---|
-| 「この端末だけで動作しています」と出る | `firebase-config.js` の値、匿名ログインが有効か、承認済みドメイン |
-| 「保存できませんでした」と出る | Firestore のルールが `firestore.rules` と同じか |
+| バッジが「この端末のみ」で「共有サーバーに接続できない」と出る | 手順2の匿名ログインが有効か／手順8のドメイン登録／手順6が反映済みか |
+| 「保存できませんでした」と出る | 手順4のルールが `firestore.rules` と同じ内容で「公開」されているか |
 | 招待リンクを開くと「新しい予定表を作る」画面になる | リンクの `?b=…` が途中で切れていないか |
+| Pages の URL が 404 になる | 手順7-2 のブランチとフォルダ／数分待ってから再読み込み |
 
 ## 無料プランの目安
 
-Firestore 無料枠は 1日あたり 読み取り 5万回 / 書き込み 2万回。仲間内（数人〜十数人）の利用なら十分に収まります。
+Firestore の無料枠は 1日あたり 読み取り 5万回 / 書き込み 2万回。仲間内（数人〜十数人）の利用なら十分に収まります。
+超えた場合もその日の保存ができなくなるだけで、自動で課金されることはありません（無料プランのまま使う限り）。
