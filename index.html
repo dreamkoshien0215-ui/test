@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>シンプルスケジュール</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #ffffff; --text: #1f2328; --muted: #6b7280;
+    --border: #e5e7eb; --accent: #2563eb; --accent-soft: #dbeafe;
+    --sun: #dc2626; --sat: #2563eb; --danger: #dc2626;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #111418; --card: #1b1f24; --text: #e6e8eb; --muted: #9aa3ad;
+      --border: #2d333b; --accent: #60a5fa; --accent-soft: #1e3a5f;
+      --sun: #f87171; --sat: #60a5fa; --danger: #f87171;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
+  }
+  main { max-width: 960px; margin: 0 auto; padding: 24px 16px; }
+  h1 { font-size: 1.4rem; margin: 0 0 16px; }
+  .layout { display: grid; grid-template-columns: 1fr 320px; gap: 16px; }
+  @media (max-width: 760px) { .layout { grid-template-columns: 1fr; } }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
+  .cal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+  .cal-head h2 { font-size: 1.1rem; margin: 0; }
+  button {
+    font: inherit; cursor: pointer; border: 1px solid var(--border);
+    background: var(--card); color: var(--text); border-radius: 8px; padding: 6px 12px;
+  }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+  .dow { text-align: center; font-size: .8rem; color: var(--muted); padding: 4px 0; }
+  .dow.sun { color: var(--sun); } .dow.sat { color: var(--sat); }
+  .day {
+    min-height: 64px; padding: 4px 6px; border-radius: 8px; border: 1px solid transparent;
+    background: transparent; text-align: left; display: flex; flex-direction: column; gap: 2px;
+  }
+  .day.other { opacity: .35; }
+  .day.today .num { background: var(--accent); color: #fff; border-radius: 999px; padding: 0 6px; }
+  .day.selected { border-color: var(--accent); background: var(--accent-soft); }
+  .day .num { font-size: .85rem; align-self: flex-start; }
+  .day.sun .num { color: var(--sun); } .day.sat .num { color: var(--sat); }
+  .day.today .num { color: #fff; }
+  .dots { display: flex; flex-wrap: wrap; gap: 3px; }
+  .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+  .side h2 { font-size: 1rem; margin: 0 0 12px; }
+  form { display: grid; gap: 8px; margin-bottom: 16px; }
+  label { font-size: .8rem; color: var(--muted); display: grid; gap: 4px; }
+  input, textarea {
+    font: inherit; color: var(--text); background: var(--bg);
+    border: 1px solid var(--border); border-radius: 8px; padding: 8px; width: 100%;
+  }
+  textarea { resize: vertical; min-height: 56px; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+  li { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; display: flex; gap: 8px; }
+  li .time { font-variant-numeric: tabular-nums; color: var(--accent); font-size: .9rem; min-width: 44px; }
+  li .body { flex: 1; min-width: 0; }
+  li .title { font-weight: 600; overflow-wrap: anywhere; }
+  li .memo { font-size: .85rem; color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; }
+  li button { padding: 2px 8px; font-size: .8rem; color: var(--danger); align-self: flex-start; }
+  .empty { color: var(--muted); font-size: .9rem; }
+</style>
+</head>
+<body>
+<main>
+  <h1>📅 シンプルスケジュール</h1>
+  <div class="layout">
+    <section class="card">
+      <div class="cal-head">
+        <button id="prev" aria-label="前の月">‹</button>
+        <h2 id="month-label"></h2>
+        <button id="next" aria-label="次の月">›</button>
+      </div>
+      <div class="grid" id="dow"></div>
+      <div class="grid" id="calendar"></div>
+      <div style="margin-top:12px"><button id="today">今日</button></div>
+    </section>
+
+    <aside class="card side">
+      <h2 id="selected-label"></h2>
+      <form id="form">
+        <label>タイトル<input id="title" required maxlength="100" placeholder="例: 打ち合わせ"></label>
+        <div class="row">
+          <label>日付<input id="date" type="date" required></label>
+          <label>時間<input id="time" type="time"></label>
+        </div>
+        <label>メモ<textarea id="memo" maxlength="500"></textarea></label>
+        <button class="primary" type="submit">予定を追加</button>
+      </form>
+      <ul id="list"></ul>
+    </aside>
+  </div>
+</main>
+
+<script>
+  const STORAGE_KEY = "simple-schedule-events";
+  const DOW = ["日", "月", "火", "水", "木", "金", "土"];
+
+  const pad = (n) => String(n).padStart(2, "0");
+  const toKey = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+
+  function loadEvents() {
+    try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || []; }
+    catch { return []; }
+  }
+  function saveEvents() {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(events)); } catch {}
+  }
+
+  let events = loadEvents();
+  let selected = toKey(new Date());
+  let viewYear = new Date().getFullYear();
+  let viewMonth = new Date().getMonth();
+
+  const $ = (id) => document.getElementById(id);
+
+  function eventsOn(key) {
+    return events
+      .filter((e) => e.date === key)
+      .sort((a, b) => (a.time || "99:99").localeCompare(b.time || "99:99"));
+  }
+
+  function renderCalendar() {
+    $("month-label").textContent = `${viewYear}年 ${viewMonth + 1}月`;
+    const cal = $("calendar");
+    cal.innerHTML = "";
+    const first = new Date(viewYear, viewMonth, 1);
+    const start = new Date(viewYear, viewMonth, 1 - first.getDay());
+    const todayKey = toKey(new Date());
+
+    for (let i = 0; i < 42; i++) {
+      const d = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i);
+      const key = toKey(d);
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "day";
+      if (d.getMonth() !== viewMonth) btn.classList.add("other");
+      if (d.getDay() === 0) btn.classList.add("sun");
+      if (d.getDay() === 6) btn.classList.add("sat");
+      if (key === todayKey) btn.classList.add("today");
+      if (key === selected) btn.classList.add("selected");
+
+      const num = document.createElement("span");
+      num.className = "num";
+      num.textContent = d.getDate();
+      btn.appendChild(num);
+
+      const count = eventsOn(key).length;
+      if (count) {
+        const dots = document.createElement("div");
+        dots.className = "dots";
+        for (let j = 0; j < Math.min(count, 5); j++) {
+          const dot = document.createElement("span");
+          dot.className = "dot";
+          dots.appendChild(dot);
+        }
+        btn.appendChild(dots);
+      }
+      btn.setAttribute("aria-label", `${d.getMonth() + 1}月${d.getDate()}日 予定${count}件`);
+      btn.addEventListener("click", () => select(key));
+      cal.appendChild(btn);
+    }
+  }
+
+  function renderList() {
+    const [y, m, d] = selected.split("-").map(Number);
+    const dow = DOW[new Date(y, m - 1, d).getDay()];
+    $("selected-label").textContent = `${m}月${d}日 (${dow}) の予定`;
+    $("date").value = selected;
+
+    const list = $("list");
+    list.innerHTML = "";
+    const items = eventsOn(selected);
+    if (!items.length) {
+      const li = document.createElement("li");
+      li.className = "empty";
+      li.textContent = "予定はありません";
+      list.appendChild(li);
+      return;
+    }
+    for (const ev of items) {
+      const li = document.createElement("li");
+      const time = document.createElement("span");
+      time.className = "time";
+      time.textContent = ev.time || "終日";
+      const body = document.createElement("div");
+      body.className = "body";
+      const title = document.createElement("div");
+      title.className = "title";
+      title.textContent = ev.title;
+      body.appendChild(title);
+      if (ev.memo) {
+        const memo = document.createElement("div");
+        memo.className = "memo";
+        memo.textContent = ev.memo;
+        body.appendChild(memo);
+      }
+      const del = document.createElement("button");
+      del.type = "button";
+      del.textContent = "削除";
+      del.addEventListener("click", () => {
+        if (!confirm(`「${ev.title}」を削除しますか？`)) return;
+        events = events.filter((e) => e.id !== ev.id);
+        saveEvents();
+        render();
+      });
+      li.append(time, body, del);
+      list.appendChild(li);
+    }
+  }
+
+  function render() { renderCalendar(); renderList(); }
+
+  function select(key) {
+    selected = key;
+    const [y, m] = key.split("-").map(Number);
+    viewYear = y; viewMonth = m - 1;
+    render();
+  }
+
+  function shiftMonth(delta) {
+    const d = new Date(viewYear, viewMonth + delta, 1);
+    viewYear = d.getFullYear(); viewMonth = d.getMonth();
+    renderCalendar();
+  }
+
+  $("dow").innerHTML = DOW.map((w, i) =>
+    `<div class="dow${i === 0 ? " sun" : i === 6 ? " sat" : ""}">${w}</div>`).join("");
+  $("prev").addEventListener("click", () => shiftMonth(-1));
+  $("next").addEventListener("click", () => shiftMonth(1));
+  $("today").addEventListener("click", () => select(toKey(new Date())));
+
+  $("form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const title = $("title").value.trim();
+    const date = $("date").value;
+    if (!title || !date) return;
+    events.push({
+      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      title, date, time: $("time").value, memo: $("memo").value.trim(),
+    });
+    saveEvents();
+    $("title").value = ""; $("time").value = ""; $("memo").value = "";
+    select(date);
+  });
+
+  render();
+</script>
+</body>
+</html>
