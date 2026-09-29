@@ -329,6 +329,7 @@
   let db = null;
   let backend = '';         // 共有モードの保存先: 'claude'（claude.ai の共有データ） | 'firebase'
   let readOnly = false;
+  let connected = true;      // 共有サーバーとつながっているか
   let curDate = todayStr();
   let anchor = null;        // タップ操作の開始マス {memberId, slot}
   let editingId = null;     // 編集中の予定ID
@@ -439,13 +440,18 @@
 
   function updateStatus() {
     const el = $('#status');
-    el.className = 'status ' + (mode === 'loading' || mode === 'noboard' ? '' : mode);
+    const waiting = mode === 'shared' && !connected;
+    el.className = 'status ' + (mode === 'loading' || mode === 'noboard' ? '' : waiting ? 'local' : mode);
     el.textContent = mode === 'loading' ? '接続中…' : mode === 'noboard' ? '未作成'
+      : waiting ? '接続待ち'
       : mode === 'shared' ? (readOnly ? '共有・閲覧のみ' : '共有中')
       : 'この端末のみ';
-    el.title = mode === 'shared' ? '予定はこのページを開いている全員にリアルタイムで反映されます'
+    el.title = waiting ? '共有サーバーにつながっていません。自動でつなぎ直します'
+      : mode === 'shared' ? '予定はこのページを開いている全員にリアルタイムで反映されます'
       : mode === 'local' ? '予定はこのブラウザの中だけに保存されます' : '';
     $('#invite').hidden = !(mode === 'shared' && backend === 'firebase');
+    // リンク共有では一部の日付しか読み込まないため、書き出し・読み込み（全員分の置き換え）は使わない
+    $('#export').hidden = $('#import').hidden = backend === 'firebase';
     $('#memberNote').textContent = mode === 'shared'
       ? 'メンバーと予定は、このページを開いている全員に共有されます。'
       : '※ いまはこの端末のブラウザ内だけに保存されます（他の人とは共有されません）。';
@@ -725,6 +731,13 @@
   const dateInput = $('#date');
   function setDate(d) {
     curDate = d; dateInput.value = d; clearAnchor(); render();
+    syncDates();
+  }
+  // リンク共有では、表示中の日・今日・明日（リマインド用）の予定を読み込む
+  function syncDates() {
+    if (!(db && db.setDates)) return;
+    const t = new Date();
+    db.setDates([curDate, dateStr(t), dateStr(new Date(t.getFullYear(), t.getMonth(), t.getDate() + 1))]);
   }
   function shiftDate(days) {
     const [y, m, d] = curDate.split('-').map(Number);
@@ -1068,7 +1081,6 @@
   }
 
   // ----- Firebase（誰でもリンクで参加できる共有） -----
-  const FIREBASE_SDK = 'https://www.gstatic.com/firebasejs/10.14.1/';
   const firebaseConfig = () => {
     const c = window.FIREBASE_CONFIG;
     return !FRAMED && c && c.apiKey && c.projectId ? c : null;
@@ -1083,30 +1095,137 @@
     const id = btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_');
     location.search = '?b=' + id;
   }
-  // Firestore を、claude.ai の共有データと同じ形（collection().doc().set/delete, onSnapshot）で包む
-  async function connectFirebase(cfg, board) {
-    // ログインは使わず、推測できない予定表ID（招待リンク）で参加者を限定する
-    const [appM, fsM] = await Promise.all([
-      import(FIREBASE_SDK + 'firebase-app.js'),
-      import(FIREBASE_SDK + 'firebase-firestore.js'),
-    ]);
-    const app = appM.initializeApp(cfg);
-    const fs = fsM.getFirestore(app);
-    const mapErr = (e) => {
-      const c = e && e.code;
-      throw { code: c === 'permission-denied' ? 'rejected' : c === 'resource-exhausted' ? 'resource_exhausted'
-        : c === 'unavailable' ? 'unavailable' : 'unknown', message: String(e && e.message) };
+  const POLL_MS = 5000;             // 変更の確認間隔
+  const FULL_REFRESH_MS = 300000;   // 念のため全体を読み直す間隔
+
+  // Firestore の REST API を、claude.ai の共有データと同じ形（collection().doc().set/delete, onSnapshot）で包む。
+  // 公式ライブラリのストリーミング通信は回線によって途中で切られ、保存がサーバーに届かないまま
+  // 「保存できたように見える」ことがあるため、ふつうの HTTP 通信＋定期確認で同期する。
+  // ログインは使わず、推測できない予定表ID（招待リンク）で参加者を限定する。
+  function connectFirebase(cfg, board) {
+    const base = `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(cfg.projectId)}` +
+      `/databases/(default)/documents/boards/${board}`;
+    const key = 'key=' + encodeURIComponent(cfg.apiKey);
+    const JSON_HEADERS = { 'Content-Type': 'application/json' };
+    const enc = (v) => typeof v === 'string' ? { stringValue: v }
+      : typeof v === 'boolean' ? { booleanValue: v }
+      : Number.isInteger(v) ? { integerValue: String(v) }
+      : typeof v === 'number' ? { doubleValue: v } : { nullValue: null };
+    const dec = (v) => 'stringValue' in v ? v.stringValue
+      : 'integerValue' in v ? Number(v.integerValue)
+      : 'doubleValue' in v ? v.doubleValue
+      : 'booleanValue' in v ? v.booleanValue : null;
+    const toDoc = (d) => {
+      const data = {};
+      for (const [k, v] of Object.entries(d.fields || {})) data[k] = dec(v);
+      return { id: d.name.split('/').pop(), exists: true, data: () => data };
     };
+    const fields = (data) => ({ fields: Object.fromEntries(Object.entries(data).map(([k, v]) => [k, enc(v)])) });
+
+    async function call(url, opts) {
+      let res;
+      try { res = await fetch(url, { cache: 'no-store', ...opts }); } catch {
+        throw { code: 'unavailable', message: 'network' };
+      }
+      if (res.ok) return res.json();
+      const code = res.status === 403 || res.status === 400 ? 'rejected'
+        : res.status === 429 ? 'resource_exhausted' : res.status === 404 ? 'not_found' : 'unavailable';
+      throw { code, message: String(res.status) };
+    }
+    async function listMembers() {
+      const out = [];
+      let token = '';
+      do {
+        const j = await call(`${base}/members?${key}&pageSize=300${token ? '&pageToken=' + encodeURIComponent(token) : ''}`);
+        (j.documents || []).forEach((d) => out.push(toDoc(d)));
+        token = j.nextPageToken || '';
+      } while (token);
+      return out;
+    }
+    // 予定は表示中の日付まわりだけ読む（件数が増えても読み取り回数を抑えるため）
+    async function listEvents(dates) {
+      if (!dates.length) return [];
+      const j = await call(`${base}:runQuery?${key}`, {
+        method: 'POST', headers: JSON_HEADERS,
+        body: JSON.stringify({ structuredQuery: {
+          from: [{ collectionId: 'events' }],
+          where: { fieldFilter: { field: { fieldPath: 'date' }, op: 'IN',
+            value: { arrayValue: { values: dates.map((d) => ({ stringValue: d })) } } } },
+        } }),
+      });
+      return j.filter((r) => r.document).map((r) => toDoc(r.document));
+    }
+    // 予定表ごとの「更新番号」。書き込みのたびに変え、他の人はこれだけを定期確認する（1回1件の読み取り）
+    async function getRev() {
+      try {
+        const j = await call(`${base}/meta/rev?${key}`);
+        return j.fields && j.fields.rev ? dec(j.fields.rev) : 0;
+      } catch (e) {
+        if (e.code === 'not_found') return 0;
+        if (e.code === 'rejected') return NaN;   // ルール未更新の予定表でも動くよう、毎回すべて読み直す
+        throw e;
+      }
+    }
+    const bumpRev = () => call(`${base}/meta/rev?${key}`, {
+      method: 'PATCH', headers: JSON_HEADERS, body: JSON.stringify(fields({ rev: Date.now() })),
+    }).catch(() => {});
+
+    const listeners = { members: [], events: [] };
+    const statusFns = [];
+    const sigs = {};
+    let dates = [];
+    let lastRev = null, lastFull = 0, online = null;
+    let running = false;
+
+    const setOnline = (v) => { if (v !== online) { online = v; statusFns.forEach((f) => f(v)); } };
+    function emit(name, docs) {
+      const sig = JSON.stringify(docs.map((d) => [d.id, d.data()]).sort());
+      if (sigs[name] === sig) return;
+      sigs[name] = sig;
+      listeners[name].forEach((fn) => fn({ docs }));
+    }
+    // 読み込みは1つずつ順番に行う（保存直後の読み直しが、確認中の古い結果に負けないように）
+    async function refresh(force) {
+      while (running) await sleep(50);
+      running = true;
+      try {
+        const rev = await getRev();
+        if (force || rev !== lastRev || Date.now() - lastFull > FULL_REFRESH_MS) {
+          const [m, e] = await Promise.all([listMembers(), listEvents(dates)]);
+          lastRev = rev; lastFull = Date.now();
+          emit('members', m);
+          emit('events', e);
+        }
+        setOnline(true);
+      } catch {
+        setOnline(false);
+      }
+      running = false;
+    }
+    (function loop() {
+      setTimeout(async () => { if (!document.hidden) await refresh(false); loop(); }, POLL_MS);
+    })();
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(false); });
+    window.addEventListener('online', () => refresh(true));
+
+    // 保存 → 更新番号を進める → 自分の画面を読み直す（ここまで終わってから入力画面を閉じる）
+    const write = async (url, opts) => { await call(url, opts); await bumpRev(); await refresh(true); };
     return {
       collection: (name) => ({
         doc: (id) => ({
-          set: (data) => fsM.setDoc(fsM.doc(fs, 'boards', board, name, id), data).catch(mapErr),
-          delete: () => fsM.deleteDoc(fsM.doc(fs, 'boards', board, name, id)).catch(mapErr),
+          set: (data) => write(`${base}/${name}/${id}?${key}`, { method: 'PATCH', headers: JSON_HEADERS, body: JSON.stringify(fields(data)) }),
+          delete: () => write(`${base}/${name}/${id}?${key}`, { method: 'DELETE' }),
         }),
-        onSnapshot: (next, error) => fsM.onSnapshot(fsM.collection(fs, 'boards', board, name),
-          (snap) => next({ docs: snap.docs.map((d) => ({ id: d.id, exists: true, data: () => d.data() })) }),
-          error),
+        onSnapshot: (next) => { listeners[name].push(next); refresh(true); return () => {}; },
       }),
+      setDates(list) {
+        const next = [...new Set(list)].sort();
+        if (next.join() === dates.join()) return;
+        dates = next;
+        sigs.events = null;
+        refresh(true);
+      },
+      onStatus(fn) { statusFns.push(fn); if (online !== null) fn(online); },
     };
   }
 
@@ -1154,6 +1273,22 @@
     const onError = () => {
       toast('共有データとの接続が切れました。ページを開き直してください。', 8000);
     };
+    if (db.onStatus) {
+      db.onStatus((ok) => {
+        const was = connected;
+        connected = ok;
+        updateStatus();
+        if (!ok && !(gotMembers && gotEvents)) {
+          board.innerHTML = `<div class="empty"><strong>共有サーバーにつながりません</strong>
+            <span>通信状態を確認してください。つながると自動で表示されます。</span></div>`;
+        } else if (!ok && was) {
+          toast('共有サーバーにつながっていません。この間の変更は保存できません。', 6000);
+        } else if (ok && !was) {
+          toast('共有サーバーにつながりました。');
+        }
+      });
+    }
+    syncDates();
     db.collection('members').onSnapshot((snap) => {
       state.members = snap.docs.map((d) => cleanMember(d.id, d.data() || {})).sort(byOrder);
       gotMembers = true; ready();
@@ -1167,7 +1302,7 @@
 
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') clearAnchor(); });
   document.addEventListener('visibilitychange', () => { if (!document.hidden) { drawNowLine(); checkReminders(); } });
-  setInterval(drawNowLine, 60000);
+  setInterval(() => { drawNowLine(); syncDates(); }, 60000);
   setInterval(checkReminders, 15000);
 
   dateInput.value = curDate;

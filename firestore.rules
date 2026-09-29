@@ -11,6 +11,13 @@ service cloud.firestore {
         && request.resource.data.color is string && request.resource.data.color.matches('^#[0-9a-fA-F]{6}$')
         && request.resource.data.order is number;
     }
+    // 予定表ごとの更新番号（変更があったかを1件の読み取りで確認するため）
+    match /boards/{boardId}/meta/{docId} {
+      allow read: if true;
+      allow write: if docId == 'rev'
+        && request.resource.data.keys().hasOnly(['rev'])
+        && request.resource.data.rev is int;
+    }
     match /boards/{boardId}/events/{eventId} {
       allow read, delete: if true;
       allow create, update: if request.resource.data.keys().hasOnly(['date', 'memberId', 'start', 'end', 'title', 'remind', 'updatedAt'])

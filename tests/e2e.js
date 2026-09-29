@@ -315,35 +315,40 @@ const toastText = (page) => page.$eval('#toast', (t) => t.textContent);
     await new Promise((r) => server.listen(0, r));
     const base = `http://127.0.0.1:${server.address().port}/index.html`;
 
-    const MOCK = {
-      'firebase-app.js': 'export function initializeApp(c) { return { c }; }',
-      'firebase-auth.js': 'export function getAuth() { return {}; } export async function signInAnonymously() { return { user: { uid: "u" } }; }',
-      'firebase-firestore.js': `
-        const KEY = '__fsmock';
-        const read = () => JSON.parse(localStorage.getItem(KEY) || '{}');
-        const subs = [];
-        const bc = new BroadcastChannel('fsmock');
-        const emit = () => subs.forEach((f) => f());
-        bc.onmessage = emit;
-        const save = (d) => { localStorage.setItem(KEY, JSON.stringify(d)); emit(); bc.postMessage(1); };
-        export const getFirestore = () => ({});
-        export const doc = (fs, ...p) => ({ path: p.join('/') });
-        export const collection = (fs, ...p) => ({ path: p.join('/') });
-        export async function setDoc(ref, data) {
-          if (localStorage.getItem('__deny')) throw { code: 'permission-denied', message: 'denied' };
-          const d = read(); d[ref.path] = data; save(d);
-        }
-        export async function deleteDoc(ref) { const d = read(); delete d[ref.path]; save(d); }
-        export function onSnapshot(col, next) {
-          const fire = () => {
-            const docs = Object.entries(read())
-              .filter(([k]) => k.startsWith(col.path + '/') && !k.slice(col.path.length + 1).includes('/'))
-              .map(([k, v]) => ({ id: k.split('/').pop(), data: () => v }));
-            next({ docs });
-          };
-          subs.push(fire); setTimeout(fire, 0);
-          return () => {};
-        }`,
+    // Firestore REST API の疑似サーバー（テストプロセス内のメモリに保存。全ページで共有）
+    const store = new Map();                  // 'boards/<id>/<col>/<doc>' -> fields
+    let deny = false, offline = false;
+    const PREFIX = '/v1/projects/test/databases/(default)/documents/';
+    const docJson = (key) => ({ name: 'projects/test/databases/(default)/documents/' + key, fields: store.get(key) });
+    const fsRoute = async (route) => {
+      const req = route.request();
+      if (offline) return route.abort('internetdisconnected');
+      const u = new globalThis.URL(req.url());
+      const p = decodeURIComponent(u.pathname);
+      const reply = (status, body) => route.fulfill({ status, contentType: 'application/json',
+        headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify(body) });
+      if (!p.startsWith(PREFIX)) return reply(404, {});
+      const rest = p.slice(PREFIX.length);
+      if (req.method() === 'POST' && rest.endsWith(':runQuery')) {
+        const parent = rest.slice(0, -':runQuery'.length);
+        const q = JSON.parse(req.postData()).structuredQuery;
+        const col = parent + '/' + q.from[0].collectionId + '/';
+        const want = q.where.fieldFilter.value.arrayValue.values.map((v) => v.stringValue);
+        const hits = [...store.keys()].filter((k) => k.startsWith(col) && !k.slice(col.length).includes('/')
+          && want.includes(store.get(k).date.stringValue));
+        return reply(200, hits.length ? hits.map((k) => ({ document: docJson(k) })) : [{ readTime: 'x' }]);
+      }
+      const segs = rest.split('/');
+      if (segs.length % 2 === 1) {             // コレクションの一覧
+        const col = rest + '/';
+        const docs = [...store.keys()].filter((k) => k.startsWith(col) && !k.slice(col.length).includes('/')).map(docJson);
+        return reply(200, docs.length ? { documents: docs } : {});
+      }
+      if (req.method() === 'GET') return store.has(rest) ? reply(200, docJson(rest)) : reply(404, { error: { code: 404 } });
+      if (deny && !rest.includes('/meta/')) return reply(403, { error: { code: 403, status: 'PERMISSION_DENIED' } });
+      if (req.method() === 'PATCH') { store.set(rest, JSON.parse(req.postData()).fields); return reply(200, docJson(rest)); }
+      if (req.method() === 'DELETE') { store.delete(rest); return reply(200, {}); }
+      return reply(400, {});
     };
     const ctx = await browser.newContext({ viewport: { width: 1100, height: 800 } });
     await ctx.addInitScript(() => { try { delete Navigator.prototype.share; } catch {} });
@@ -351,10 +356,7 @@ const toastText = (page) => page.$eval('#toast', (t) => t.textContent);
       contentType: 'text/javascript',
       body: "window.FIREBASE_CONFIG = { apiKey: 'test', projectId: 'test' };",
     }));
-    await ctx.route('https://www.gstatic.com/firebasejs/**', (route) => {
-      const name = route.request().url().split('/').pop();
-      route.fulfill({ contentType: 'text/javascript', headers: { 'Access-Control-Allow-Origin': '*' }, body: MOCK[name] || '' });
-    });
+    await ctx.route('https://firestore.googleapis.com/**', fsRoute);
     const errors = [];
     const a = await ctx.newPage();
     a.on('pageerror', (e) => errors.push(e.message));
@@ -387,8 +389,9 @@ const toastText = (page) => page.$eval('#toast', (t) => t.textContent);
     await b.click('.ev');
     await b.fill('#fTitle', 'Bが変更');
     await b.click('#editorForm button[type=submit]');
-    await a.waitForTimeout(300);
-    check('Bの変更がAにすぐ反映される', (await evTexts(a)).some((t) => t.includes('Bが変更')));
+    const synced = await a.waitForFunction(() => [...document.querySelectorAll('.ev')].some((e) => e.textContent.includes('Bが変更')),
+      null, { timeout: 8000 }).then(() => true, () => false);
+    check('Bの変更が数秒以内にAに反映される', synced);
 
     const c = await ctx.newPage();
     await c.goto(base);
@@ -400,12 +403,29 @@ const toastText = (page) => page.$eval('#toast', (t) => t.textContent);
     check('招待画面にリンクが表示される', (await a.inputValue('#inviteUrl')) === boardUrl);
     await a.click('#inviteForm button[type=submit]');
 
-    await a.evaluate(() => localStorage.setItem('__deny', '1'));
+    // 通信が切れたら「接続待ち」になり、保存は失敗として知らされる
+    offline = true;
+    const waiting = await a.waitForFunction(() => document.querySelector('#status').textContent === '接続待ち',
+      null, { timeout: 8000 }).then(() => true, () => false);
+    check('通信が切れると「接続待ち」と表示される', waiting);
+    await a.click('.ev');
+    await a.fill('#fTitle', '届かない変更');
+    await a.click('#editorForm button[type=submit]');
+    await a.waitForTimeout(2000)   // 1回だけ自動で再試行してから知らせる;
+    check('通信が切れている間の保存は失敗と表示される', (await toastText(a)).includes('保存できませんでした') && (await a.$eval('#editor', (d) => d.open)));
+    await a.click('#fCancel');
+    offline = false;
+    const back = await a.waitForFunction(() => document.querySelector('#status').textContent === '共有中',
+      null, { timeout: 8000 }).then(() => true, () => false);
+    check('つながると「共有中」に戻る', back);
+
+    deny = true;
     await a.click('.ev');
     await a.fill('#fTitle', '拒否される変更');
     await a.click('#editorForm button[type=submit]');
     await a.waitForTimeout(200);
     check('サーバーに拒否されたら保存されず案内が出る', (await toastText(a)).includes('保存できませんでした') && (await a.$eval('#editor', (d) => d.open)));
+    check('サーバーには拒否された変更が残らない', ![...store.values()].some((f) => f.title && f.title.stringValue === '拒否される変更'));
     check('ページ内エラーなし', errors.length === 0, errors.join(' / '));
     await ctx.close();
     server.close();
