@@ -1085,13 +1085,12 @@
   }
   // Firestore を、claude.ai の共有データと同じ形（collection().doc().set/delete, onSnapshot）で包む
   async function connectFirebase(cfg, board) {
-    const [appM, authM, fsM] = await Promise.all([
+    // ログインは使わず、推測できない予定表ID（招待リンク）で参加者を限定する
+    const [appM, fsM] = await Promise.all([
       import(FIREBASE_SDK + 'firebase-app.js'),
-      import(FIREBASE_SDK + 'firebase-auth.js'),
       import(FIREBASE_SDK + 'firebase-firestore.js'),
     ]);
     const app = appM.initializeApp(cfg);
-    await authM.signInAnonymously(authM.getAuth(app));
     const fs = fsM.getFirestore(app);
     const mapErr = (e) => {
       const c = e && e.code;
