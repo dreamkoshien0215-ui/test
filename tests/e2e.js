@@ -43,6 +43,11 @@ const MOCK_DB = () => {
   window.claude = { use: async (n) => (n === 'db' ? { collection } : null) };
 };
 
+// firebase-config.js の設定を無視させる（この端末モード・claude.ai モードの試験用）
+const NO_FIREBASE = () => {
+  Object.defineProperty(window, 'FIREBASE_CONFIG', { get: () => null, set() {}, configurable: false });
+};
+
 async function slotBox(page, col) {
   const s = (await page.$$('.slots'))[col];
   const r = await s.boundingBox();
@@ -61,6 +66,7 @@ const toastText = (page) => page.$eval('#toast', (t) => t.textContent);
   console.log('この端末だけモード');
   {
     const ctx = await browser.newContext({ viewport: { width: 1100, height: 800 } });
+    await ctx.addInitScript(NO_FIREBASE);
     const page = await ctx.newPage();
     const errors = [];
     page.on('pageerror', (e) => errors.push(e.message));
@@ -213,6 +219,7 @@ const toastText = (page) => page.$eval('#toast', (t) => t.textContent);
   console.log('スマホ幅');
   {
     const ctx = await browser.newContext({ viewport: { width: 375, height: 700 }, hasTouch: true, isMobile: true });
+    await ctx.addInitScript(NO_FIREBASE);
     const page = await ctx.newPage();
     await page.goto(URL);
     await page.waitForSelector('.ev');
@@ -229,6 +236,7 @@ const toastText = (page) => page.$eval('#toast', (t) => t.textContent);
   console.log('共有モード');
   {
     const ctx = await browser.newContext({ viewport: { width: 1100, height: 800 } });
+    await ctx.addInitScript(NO_FIREBASE);
     await ctx.addInitScript(MOCK_DB);
     const a = await ctx.newPage();
     const b = await ctx.newPage();
