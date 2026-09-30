@@ -124,7 +124,12 @@ const toastText = (page) => page.$eval('#toast', (t) => t.textContent);
     check('編集が反映される', (await evTexts(page)).some((t) => t.includes('ドラッグ予定（変更）')));
     await page.click('.ev >> text=ドラッグ予定（変更）');
     check('編集画面に場所と担当者が入っている', (await page.inputValue('#fPlace')) === '第1会議室' && (await page.inputValue('#fPerson')) === '田中');
-    await page.click('#fCancel');
+    await page.fill('#fPerson', 'A、B、C、D、E、F、G、H、I、J、K');
+    await page.click('#editorForm button[type=submit]');
+    check('担当者が11人だと保存されずエラー', await page.$eval('#fError', (e) => !e.hidden && e.textContent.includes('10人まで')));
+    await page.fill('#fPerson', 'A, B　C、D、E、F、G、H、I、J');
+    await page.click('#editorForm button[type=submit]');
+    check('担当者10人は保存でき、区切りが「、」にそろう', (await evTexts(page)).some((t) => t.includes('👤A、B、C、D、E、F、G、H、I、J')));
 
     // 削除（確認でキャンセル→削除）
     await page.click('.ev >> text=タップ予定');

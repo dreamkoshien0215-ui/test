@@ -170,10 +170,8 @@
   <form id="editorForm">
     <h2 id="editorTitle">予定を追加</h2>
     <label>タイトル<input type="text" id="fTitle" placeholder="例: 打ち合わせ" maxlength="60"></label>
-    <div class="row">
-      <label>場所<input type="text" id="fPlace" placeholder="例: 第1会議室" maxlength="40"></label>
-      <label>担当者<input type="text" id="fPerson" placeholder="例: 田中" maxlength="20"></label>
-    </div>
+    <label>場所<input type="text" id="fPlace" placeholder="例: 第1会議室" maxlength="40"></label>
+    <label>担当者（「、」で区切って10人まで）<input type="text" id="fPerson" placeholder="例: 田中、佐藤、鈴木" maxlength="200"></label>
     <label>メンバー（表示する列）<select id="fMember"></select></label>
     <div class="row">
       <label>開始<select id="fStart"></select></label>
@@ -285,6 +283,7 @@
   const ZOOM_KEY = 'tenmin-zoom';
   const NOTIFY_FOR_KEY = 'tenmin-notify-for';
   const COLORS = ['#2563eb', '#16a34a', '#db2777', '#ea580c', '#7c3aed', '#0891b2', '#ca8a04', '#475569'];
+  const MAX_PEOPLE = 10;                     // 1つの予定に入れられる担当者の人数
   const ZOOMS = [{ h: 12, label: '小' }, { h: 20, label: '標準' }, { h: 32, label: '大' }];
   // claude.ai の中（iframe）で開かれているか。中では印刷画面やファイル保存が使えない
   const FRAMED = (() => { try { return window.top !== window.self; } catch { return true; } })();
@@ -324,7 +323,7 @@
       start, end,
       title: String(d.title ?? '').slice(0, 60),
       place: String(d.place ?? '').slice(0, 40),
-      person: String(d.person ?? '').slice(0, 20),
+      person: String(d.person ?? '').slice(0, 200),
       remind: [0, 5, 10, 15, 30, 60].includes(Number(d.remind)) ? Number(d.remind) : 0,
       updatedAt: Number(d.updatedAt) || 0,
     };
@@ -679,7 +678,7 @@
     const data = {
       title: $('#fTitle').value.trim(),
       place: $('#fPlace').value.trim(),
-      person: $('#fPerson').value.trim(),
+      person: $('#fPerson').value,
       memberId: $('#fMember').value,
       start: Number($('#fStart').value),
       end: Number($('#fEnd').value),
@@ -687,6 +686,12 @@
     };
     if (!state.members.some((m) => m.id === data.memberId)) return showErr('メンバー（表示する列）を選んでください。');
     if (data.end <= data.start) return showErr('終了時刻は開始時刻より後にしてください。');
+    // 担当者は「、」「,」や空白で区切られた名前として扱い、「、」でそろえて保存する
+    const people = data.person.split(/[、,，､\s]+/).map((x) => x.trim()).filter(Boolean);
+    if (people.length > MAX_PEOPLE) return showErr(`担当者は${MAX_PEOPLE}人までです（いま${people.length}人）。`);
+    const longName = people.find((x) => x.length > 20);
+    if (longName) return showErr(`担当者の名前は1人20文字までです（「${longName.slice(0, 10)}…」）。`);
+    data.person = people.join('、');
     const target = editingId && state.events.find((x) => x.id === editingId);
     if (editingId && !target) return showErr('この予定は他の人が削除しました。キャンセルして画面を確認してください。');
     const date = target ? target.date : curDate;

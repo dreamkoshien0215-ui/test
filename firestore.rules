@@ -28,7 +28,7 @@ service cloud.firestore {
         && request.resource.data.end <= 144
         && request.resource.data.title is string && request.resource.data.title.size() <= 60
         && (!('place' in request.resource.data) || (request.resource.data.place is string && request.resource.data.place.size() <= 40))
-        && (!('person' in request.resource.data) || (request.resource.data.person is string && request.resource.data.person.size() <= 20))
+        && (!('person' in request.resource.data) || (request.resource.data.person is string && request.resource.data.person.size() <= 200))
         && request.resource.data.remind in [0, 5, 10, 15, 30, 60]
         && request.resource.data.updatedAt is number;
     }

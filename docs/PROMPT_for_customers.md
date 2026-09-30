@@ -57,7 +57,7 @@ AI（Claude など）に貼り付けるだけで、今回作ったツールと�
   ドラッグだと縦スクロールとぶつかるため、タッチでは2タップ方式にする。touch-action: pan-x pan-y でスクロールはブラウザに任せ、指が8px以上動いたらタップ扱いしない
 - 1回目のタップ後は「開始 09:00 を選択 → 終了のマスをタップ」とトースト表示。Esc キーで取り消し
 - 予定ブロックをタップ／クリックすると編集画面
-- 入力画面（<dialog>）：タイトル（60文字まで）、場所（40文字まで・任意）、担当者名（20文字まで・任意）、メンバー（表示する列）、開始、終了（10分刻みのセレクト）、リマインド（なし／5／10／15／30／60分前、初期値10分前）、保存・キャンセル・削除（編集時のみ）
+- 入力画面（<dialog>）：タイトル（60文字まで）、場所（40文字まで・任意）、担当者名（任意。「、」区切りで10人まで、1人20文字まで。保存時に区切りを「、」にそろえる。全体200文字まで）、メンバー（表示する列）、開始、終了（10分刻みのセレクト）、リマインド（なし／5／10／15／30／60分前、初期値10分前）、保存・キャンセル・削除（編集時のみ）
 - 保存前のチェック（エラーは入力画面の中に赤字で表示）：
   - 終了が開始より後であること
   - 同じメンバー・同じ日で時間が重なる予定がないこと（重なる予定のタイトルと時刻を表示）
@@ -128,7 +128,7 @@ service cloud.firestore {
         && request.resource.data.end <= 144
         && request.resource.data.title is string && request.resource.data.title.size() <= 60
         && (!('place' in request.resource.data) || (request.resource.data.place is string && request.resource.data.place.size() <= 40))
-        && (!('person' in request.resource.data) || (request.resource.data.person is string && request.resource.data.person.size() <= 20))
+        && (!('person' in request.resource.data) || (request.resource.data.person is string && request.resource.data.person.size() <= 200))
         && request.resource.data.remind in [0, 5, 10, 15, 30, 60]
         && request.resource.data.updatedAt is number;
     }
