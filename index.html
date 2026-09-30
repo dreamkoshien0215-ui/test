@@ -94,6 +94,7 @@
     line-height: 1.35; overflow: hidden; color: #fff; cursor: pointer; z-index: 1;
     box-shadow: 0 1px 2px rgba(0,0,0,.25); }
   .ev small { opacity: .9; margin-left: 4px; }
+  .ev .evmeta { display: block; margin-left: 0; font-size: 11px; opacity: .95; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .preview { position: absolute; left: 2px; right: 2px; border: 2px dashed var(--accent);
     background: var(--accent-soft); border-radius: 6px; pointer-events: none; z-index: 2;
     font-size: 11px; color: var(--accent); padding: 0 4px; font-weight: 600; }
@@ -112,6 +113,7 @@
   label { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
   .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
   .row > * { flex: 1; min-width: 90px; }
+  dialog label > input[type=text], dialog label > select { width: 100%; min-width: 0; }
   .actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; margin-top: 6px; }
   .actions .danger { margin-right: auto; }
   .member-row { display: flex; gap: 6px; align-items: center; }
@@ -168,7 +170,11 @@
   <form id="editorForm">
     <h2 id="editorTitle">予定を追加</h2>
     <label>タイトル<input type="text" id="fTitle" placeholder="例: 打ち合わせ" maxlength="60"></label>
-    <label>担当メンバー<select id="fMember"></select></label>
+    <div class="row">
+      <label>場所<input type="text" id="fPlace" placeholder="例: 第1会議室" maxlength="40"></label>
+      <label>担当者<input type="text" id="fPerson" placeholder="例: 田中" maxlength="20"></label>
+    </div>
+    <label>メンバー（表示する列）<select id="fMember"></select></label>
     <div class="row">
       <label>開始<select id="fStart"></select></label>
       <label>終了<select id="fEnd"></select></label>
@@ -317,6 +323,8 @@
       memberId: String(d.memberId ?? ''),
       start, end,
       title: String(d.title ?? '').slice(0, 60),
+      place: String(d.place ?? '').slice(0, 40),
+      person: String(d.person ?? '').slice(0, 20),
       remind: [0, 5, 10, 15, 30, 60].includes(Number(d.remind)) ? Number(d.remind) : 0,
       updatedAt: Number(d.updatedAt) || 0,
     };
@@ -364,6 +372,13 @@
 
   // ===== データ操作（共有モードは db へ、この端末モードは localStorage へ） =====
   const body = (o) => { const { id, ...rest } = o; return rest; };
+  // 場所・担当者は空なら保存しない（古いルールのままの予定表でも保存できるように）
+  const eventBody = (ev) => {
+    const b = body(ev);
+    if (!b.place) delete b.place;
+    if (!b.person) delete b.person;
+    return b;
+  };
 
   async function dbWrite(fn) {
     try { await fn(); return true; } catch (e) {
@@ -393,7 +408,7 @@
   }
 
   async function putEvent(ev) {
-    if (mode === 'shared') return dbWrite(() => db.collection('events').doc(ev.id).set(body(ev)));
+    if (mode === 'shared') return dbWrite(() => db.collection('events').doc(ev.id).set(eventBody(ev)));
     const i = state.events.findIndex((x) => x.id === ev.id);
     if (i >= 0) state.events[i] = ev; else state.events.push(ev);
     saveLocal(); render(); return true;
@@ -427,7 +442,7 @@
       for (const ev of state.events) if (!(await dbWrite(() => db.collection('events').doc(ev.id).delete()))) return false;
       for (const m of state.members) if (!(await dbWrite(() => db.collection('members').doc(m.id).delete()))) return false;
       for (const m of next.members) if (!(await dbWrite(() => db.collection('members').doc(m.id).set(body(m))))) return false;
-      for (const ev of next.events) if (!(await dbWrite(() => db.collection('events').doc(ev.id).set(body(ev))))) return false;
+      for (const ev of next.events) if (!(await dbWrite(() => db.collection('events').doc(ev.id).set(eventBody(ev))))) return false;
       return true;
     }
     state = next; saveLocal(); render(); return true;
@@ -503,8 +518,10 @@
         el.style.top = `calc(var(--h) * ${ev.start} + 1px)`;
         el.style.height = `calc(var(--h) * ${ev.end - ev.start} - 2px)`;
         el.style.background = m.color;
-        el.title = `${ev.title || '(無題)'} ${slotLabel(ev.start)}–${slotLabel(ev.end)}`;
-        el.innerHTML = `<b>${esc(ev.title || '(無題)')}</b><small>${slotLabel(ev.start)}–${slotLabel(ev.end)}${ev.remind ? ' 🔔' : ''}</small>`;
+        const meta = eventMeta(ev);
+        el.title = `${ev.title || '(無題)'} ${slotLabel(ev.start)}–${slotLabel(ev.end)}${meta ? '\n' + meta : ''}`;
+        el.innerHTML = `<b>${esc(ev.title || '(無題)')}</b><small>${slotLabel(ev.start)}–${slotLabel(ev.end)}${ev.remind ? ' 🔔' : ''}</small>` +
+          (meta ? `<small class="evmeta">${esc(meta)}</small>` : '');
         el.addEventListener('click', () => openEditor(ev));
         slots.append(el);
       }
@@ -516,6 +533,11 @@
       if (s) showPreview(s, anchor.slot, anchor.slot + 1); else anchor = null;
     }
     drawNowLine();
+  }
+
+  // 予定ブロックに添える「📍場所 👤担当者」
+  function eventMeta(ev) {
+    return [ev.place && `📍${ev.place}`, ev.person && `👤${ev.person}`].filter(Boolean).join('  ');
   }
 
   function showPreview(slots, a, b) {
@@ -636,6 +658,8 @@
     editingId = ev.id || null;
     $('#editorTitle').textContent = editingId ? '予定を編集' : '予定を追加';
     $('#fTitle').value = ev.title || '';
+    $('#fPlace').value = ev.place || '';
+    $('#fPerson').value = ev.person || '';
     $('#fMember').innerHTML = state.members.map((m) => `<option value="${esc(m.id)}">${esc(m.name)}</option>`).join('');
     $('#fMember').value = ev.memberId;
     $('#fStart').value = ev.start;
@@ -654,12 +678,14 @@
     err.hidden = true;
     const data = {
       title: $('#fTitle').value.trim(),
+      place: $('#fPlace').value.trim(),
+      person: $('#fPerson').value.trim(),
       memberId: $('#fMember').value,
       start: Number($('#fStart').value),
       end: Number($('#fEnd').value),
       remind: Number($('#fRemind').value),
     };
-    if (!state.members.some((m) => m.id === data.memberId)) return showErr('担当メンバーを選んでください。');
+    if (!state.members.some((m) => m.id === data.memberId)) return showErr('メンバー（表示する列）を選んでください。');
     if (data.end <= data.start) return showErr('終了時刻は開始時刻より後にしてください。');
     const target = editingId && state.events.find((x) => x.id === editingId);
     if (editingId && !target) return showErr('この予定は他の人が削除しました。キャンセルして画面を確認してください。');
@@ -971,13 +997,19 @@
         g.save(); g.beginPath(); g.rect(ex, ey, ew, eh); g.clip();
         g.fillStyle = '#ffffff';
         const title = ev.title || '(無題)', time = `${slotLabel(ev.start)}–${slotLabel(ev.end)}`;
+        const meta = [ev.place && `場所：${ev.place}`, ev.person && `担当：${ev.person}`].filter(Boolean).join(' ／ ');
         const small = Math.floor(Math.min(fs, (eh - 4) * 0.8));   // 枠が低い予定は文字を縮める
         if (small < 12) {
           // 文字が読めない高さなので色帯のみ
-        } else if (eh >= fs * 2.6) {
+        } else if (eh >= fs * 3.9 && meta) {
           g.textBaseline = 'top';
           g.font = `bold ${fs}px ${SHEET_FONT}`; fitText(g, title, ex + 12, ey + 8, ew - 24);
           g.font = `${Math.round(fs * 0.85)}px ${SHEET_FONT}`; fitText(g, time, ex + 12, ey + 8 + fs * 1.3, ew - 24);
+          fitText(g, meta, ex + 12, ey + 8 + fs * 2.5, ew - 24);
+        } else if (eh >= fs * 2.6) {
+          g.textBaseline = 'top';
+          g.font = `bold ${fs}px ${SHEET_FONT}`; fitText(g, title, ex + 12, ey + 8, ew - 24);
+          g.font = `${Math.round(fs * 0.85)}px ${SHEET_FONT}`; fitText(g, meta ? `${time}  ${meta}` : time, ex + 12, ey + 8 + fs * 1.3, ew - 24);
         } else {
           g.textBaseline = 'middle';
           g.font = `bold ${small}px ${SHEET_FONT}`; fitText(g, `${title}  ${time}`, ex + 12, ey + eh / 2, ew - 24);

@@ -11,7 +11,8 @@
   - 現在時刻の赤線、マス目の大きさの切り替え（小・標準・大）
 - **予定の入力**
   - スマホは開始マス→終了マスの2回タップ、PCはドラッグ
-  - 入力画面で、タイトル・担当メンバー・時刻・リマインドを設定
+  - 入力画面で、タイトル・場所・担当者・メンバー（表示する列）・時刻・リマインドを設定
+  - 予定のブロックに「📍場所 👤担当者」を表示し、印刷にも載る
   - 同じ人の予定が重なると保存できず、理由が表示される
 - **メンバー管理**：名前・色の変更、追加、削除。「全体」の列を作って全員の予定を入れる使い方もできる
 - **共有**
@@ -50,7 +51,7 @@
   - `README.md`：使い方
   - `docs/SETUP.md`：公開手順
   - `docs/examples/`：画面例と印刷例の画像
-  - `tests/e2e.js`：動作テスト（53項目）
+  - `tests/e2e.js`：動作テスト（57項目）
 
 ---
 
@@ -78,7 +79,7 @@
 - 左端に時刻列（1時間ごとに「09:00」の形で表示）、上端にメンバー名の見出し。どちらもスクロールしても固定（position: sticky）
 - 罫線は 10分=点線、30分=薄い実線、1時間=濃い実線
 - 各メンバーの列は最低幅 150px（スマホは 120px）。人数が多いときは表だけ横スクロール（ページ全体は横にはみ出さない）
-- 予定はメンバーの色の角丸ブロックで、タイトル・「09:00–09:30」の時刻・リマインドありなら🔔を表示
+- 予定はメンバーの色の角丸ブロックで、タイトル・「09:00–09:30」の時刻・リマインドありなら🔔、場所・担当者があれば「📍場所 👤担当者」を表示
 - 今日を表示しているときは、現在時刻に赤い横線を引き、1分ごとに更新
 - 開いたとき・「今日」ボタンで、現在時刻の1時間前あたりまで自動スクロール
 - ズームボタンでマスの高さを 小12px／標準20px／大32px に切り替え（CSS 変数で管理、端末ごとに記憶）
@@ -94,7 +95,7 @@
   ドラッグだと縦スクロールとぶつかるため、タッチでは2タップ方式にする。touch-action: pan-x pan-y でスクロールはブラウザに任せ、指が8px以上動いたらタップ扱いしない
 - 1回目のタップ後は「開始 09:00 を選択 → 終了のマスをタップ」とトースト表示。Esc キーで取り消し
 - 予定ブロックをタップ／クリックすると編集画面
-- 入力画面（<dialog>）：タイトル（60文字まで）、担当メンバー、開始、終了（10分刻みのセレクト）、リマインド（なし／5／10／15／30／60分前、初期値10分前）、保存・キャンセル・削除（編集時のみ）
+- 入力画面（<dialog>）：タイトル（60文字まで）、場所（40文字まで・任意）、担当者名（20文字まで・任意）、メンバー（表示する列）、開始、終了（10分刻みのセレクト）、リマインド（なし／5／10／15／30／60分前、初期値10分前）、保存・キャンセル・削除（編集時のみ）
 - 保存前のチェック（エラーは入力画面の中に赤字で表示）：
   - 終了が開始より後であること
   - 同じメンバー・同じ日で時間が重なる予定がないこと（重なる予定のタイトルと時刻を表示）
@@ -114,7 +115,7 @@
 - 「🔗 招待」：navigator.share が使えれば共有シートを開き、使えなければリンクとコピーボタンのダイアログを表示。「リンクを知っている人は誰でも編集できるので仲間内だけで共有してください」と注意書き
 - データの場所：
   - boards/{予定表ID}/members/{メンバーID} … name(文字列), color(#RRGGBB), order(数値)
-  - boards/{予定表ID}/events/{予定ID} … date(YYYY-MM-DD), memberId, start(整数0-143), end(整数1-144), title, remind(整数), updatedAt(数値)
+  - boards/{予定表ID}/events/{予定ID} … date(YYYY-MM-DD), memberId, start(整数0-143), end(整数1-144), title, place(任意), person(任意), remind(整数), updatedAt(数値)。place・person は空なら送らない
   - boards/{予定表ID}/meta/rev … rev(整数・更新番号)
 - 【重要】Firebase の公式 JavaScript SDK は使わず、Firestore の REST API を fetch で直接呼ぶこと。
   理由：SDK のストリーミング通信は回線によって途中で切られ、保存がサーバーに届かないのに画面上は保存できたように見える事故が起きるため。
@@ -157,13 +158,15 @@ service cloud.firestore {
     }
     match /boards/{boardId}/events/{eventId} {
       allow read, delete: if true;
-      allow create, update: if request.resource.data.keys().hasOnly(['date', 'memberId', 'start', 'end', 'title', 'remind', 'updatedAt'])
+      allow create, update: if request.resource.data.keys().hasOnly(['date', 'memberId', 'start', 'end', 'title', 'place', 'person', 'remind', 'updatedAt'])
         && request.resource.data.date is string && request.resource.data.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
         && request.resource.data.memberId is string && request.resource.data.memberId.size() <= 64
         && request.resource.data.start is int && request.resource.data.start >= 0 && request.resource.data.start < 144
         && request.resource.data.end is int && request.resource.data.end > request.resource.data.start
         && request.resource.data.end <= 144
         && request.resource.data.title is string && request.resource.data.title.size() <= 60
+        && (!('place' in request.resource.data) || (request.resource.data.place is string && request.resource.data.place.size() <= 40))
+        && (!('person' in request.resource.data) || (request.resource.data.person is string && request.resource.data.person.size() <= 20))
         && request.resource.data.remind in [0, 5, 10, 15, 30, 60]
         && request.resource.data.updatedAt is number;
     }
@@ -183,7 +186,7 @@ service cloud.firestore {
   - 初期値：予定のある範囲を含む時間帯（最低 8:00〜20:00）、メンバー5人以上なら横
 - canvas に A4・300dpi 相当（縦 2480×3508px、横 3508×2480px）で描画して PNG にする
   - 見出し「2026年9月30日（水）のスケジュール」、時間帯と「1マス＝10分」、出力日時
-  - メンバー名の見出し（色の丸付き）、時刻、罫線（1時間=濃い線、30分=薄い線、10分=点線）、予定ブロック（タイトルと時刻）
+  - メンバー名の見出し（色の丸付き）、時刻、罫線（1時間=濃い線、30分=薄い線、10分=点線）、予定ブロック（タイトル・時刻・「場所：◯ ／ 担当：◯」）
   - 文字は枠からはみ出さないよう、はみ出す分は「…」で省略し、各列・各予定の範囲で clip する
   - 低い予定は文字を小さくし、それでも12px未満になるなら色の帯だけにする
 - 【重要】1ページに載せる人数の上限は 縦6人／横10人。超えたらページを分け、人数は均等に割り振る（例：20人・縦 → 5人×4ページ）。見出しに「（1/4）」を付け、「◯人ずつ◯ページに分けて出力します」と表示

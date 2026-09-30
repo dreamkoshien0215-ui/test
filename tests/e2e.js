@@ -86,8 +86,11 @@ const toastText = (page) => page.$eval('#toast', (t) => t.textContent);
     check('ドラッグで予定画面が開き、時刻が入る',
       (await page.$eval('#editor', (d) => d.open)) && (await page.inputValue('#fStart')) === '36' && (await page.inputValue('#fEnd')) === '39');
     await page.fill('#fTitle', 'ドラッグ予定');
+    await page.fill('#fPlace', '第1会議室');
+    await page.fill('#fPerson', '田中');
     await page.click('#editorForm button[type=submit]');
     check('保存した予定が表示される', (await evTexts(page)).some((t) => t.includes('ドラッグ予定06:00–06:30')));
+    check('場所と担当者が予定に表示される', (await evTexts(page)).some((t) => t.includes('📍第1会議室') && t.includes('👤田中')));
 
     // タップ2回で作成（2列目）
     ({ r, h } = await slotBox(page, 1));
@@ -119,6 +122,9 @@ const toastText = (page) => page.$eval('#toast', (t) => t.textContent);
     await page.fill('#fTitle', 'ドラッグ予定（変更）');
     await page.click('#editorForm button[type=submit]');
     check('編集が反映される', (await evTexts(page)).some((t) => t.includes('ドラッグ予定（変更）')));
+    await page.click('.ev >> text=ドラッグ予定（変更）');
+    check('編集画面に場所と担当者が入っている', (await page.inputValue('#fPlace')) === '第1会議室' && (await page.inputValue('#fPerson')) === '田中');
+    await page.click('#fCancel');
 
     // 削除（確認でキャンセル→削除）
     await page.click('.ev >> text=タップ予定');
@@ -387,11 +393,17 @@ const toastText = (page) => page.$eval('#toast', (t) => t.textContent);
     await b.waitForSelector('.ev');
     check('招待リンクを開いた人に同じ予定が見える', (await evTexts(b)).some((t) => t.includes('リンク共有の予定09:00–09:30')));
     await b.click('.ev');
+    check('場所・担当者が空なら保存データに含めない', [...store.values()].some((f) => f.title && !('place' in f) && !('person' in f)));
     await b.fill('#fTitle', 'Bが変更');
+    await b.fill('#fPlace', '体育館');
+    await b.fill('#fPerson', '佐藤');
     await b.click('#editorForm button[type=submit]');
     const synced = await a.waitForFunction(() => [...document.querySelectorAll('.ev')].some((e) => e.textContent.includes('Bが変更')),
       null, { timeout: 8000 }).then(() => true, () => false);
     check('Bの変更が数秒以内にAに反映される', synced);
+    check('場所・担当者もサーバーに保存され、Aに表示される',
+      [...store.values()].some((f) => f.place && f.place.stringValue === '体育館' && f.person.stringValue === '佐藤')
+      && (await evTexts(a)).some((t) => t.includes('📍体育館') && t.includes('👤佐藤')));
 
     const c = await ctx.newPage();
     await c.goto(base);
