@@ -173,7 +173,7 @@ service cloud.firestore {
 3. 「ルール」タブで中身を全部消して firestore.rules を貼り付け →「公開」
 4. ⚙「プロジェクトの設定」→「マイアプリ」→ ウェブ（</>）→ アプリを登録 → firebaseConfig の { } の中身を firebase-config.js に貼る（秘密情報ではないことも説明）
 5. Authentication（ログイン）の設定は不要と明記する
-6. 公開：GitHub にリポジトリを作り3ファイルをアップロード →（公開リポジトリにして）Settings → Pages → Deploy from a branch → main / (root) → Save → 数分後の URL を開く
+6. 公開：GitHub にリポジトリを作り（名前は好きな英数字。例：schedule。公開URLは https://ユーザー名.github.io/リポジトリ名/ になり、あとで名前を変えるとURLも変わることを説明）3ファイルをアップロード →（公開リポジトリにして）Settings → Pages → Deploy from a branch → main / (root) → Save → 数分後の URL を開く
    - リポジトリを非公開にしたい人向けに Netlify Drop（app.netlify.com/drop にフォルダをドラッグ）も書く
 7. 使い方：公開URLを開く →「新しい予定表を作る」→「👥 メンバー」で自分を追加 →「🔗 招待」で仲間にリンクを送る
    - 予定表のリンク（?b=… 付き）をブックマーク／ホーム画面に追加すること。トップページを開くと新しい予定表になること
