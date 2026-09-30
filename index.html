@@ -114,6 +114,15 @@
   .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
   .row > * { flex: 1; min-width: 90px; }
   dialog label > input[type=text], dialog label > select { width: 100%; min-width: 0; }
+  .field { display: grid; gap: 6px; }
+  .field-label { font-size: 13px; color: var(--muted); }
+  .swatches { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .swatch { width: 32px; height: 32px; min-height: 0; padding: 0; border-radius: 50%; border: 2px solid var(--bg);
+    box-shadow: 0 0 0 1px var(--line-strong); }
+  .swatch.default { width: auto; border-radius: 16px; padding: 0 10px 0 6px; display: inline-flex; align-items: center; gap: 6px;
+    background: var(--bg); font-size: 12px; box-shadow: 0 0 0 1px var(--line-strong); }
+  .swatch.default i { width: 20px; height: 20px; border-radius: 50%; display: inline-block; }
+  .swatch[aria-pressed="true"] { box-shadow: 0 0 0 3px var(--fg); }
   .actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; margin-top: 6px; }
   .actions .danger { margin-right: auto; }
   .member-row { display: flex; gap: 6px; align-items: center; }
@@ -173,6 +182,10 @@
     <label>場所<input type="text" id="fPlace" placeholder="例: 第1会議室" maxlength="40"></label>
     <label>担当者（「、」で区切って10人まで）<input type="text" id="fPerson" placeholder="例: 田中、佐藤、鈴木" maxlength="200"></label>
     <label>メンバー（表示する列）<select id="fMember"></select></label>
+    <div class="field">
+      <span class="field-label">予定の色</span>
+      <div class="swatches" id="fColor" role="group" aria-label="予定の色"></div>
+    </div>
     <div class="row">
       <label>開始<select id="fStart"></select></label>
       <label>終了<select id="fEnd"></select></label>
@@ -283,6 +296,9 @@
   const ZOOM_KEY = 'tenmin-zoom';
   const NOTIFY_FOR_KEY = 'tenmin-notify-for';
   const COLORS = ['#2563eb', '#16a34a', '#db2777', '#ea580c', '#7c3aed', '#0891b2', '#ca8a04', '#475569'];
+  // 予定ごとに選べる色（白い文字が読める濃さの色だけ）
+  const EVENT_COLORS = ['#2563eb', '#0891b2', '#16a34a', '#65a30d', '#ca8a04', '#ea580c', '#dc2626', '#db2777', '#7c3aed', '#475569'];
+  const EVENT_COLOR_NAMES = ['青', '水色', '緑', '黄緑', '黄土', 'オレンジ', '赤', 'ピンク', '紫', 'グレー'];
   const MAX_PEOPLE = 10;                     // 1つの予定に入れられる担当者の人数
   const ZOOMS = [{ h: 12, label: '小' }, { h: 20, label: '標準' }, { h: 32, label: '大' }];
   // claude.ai の中（iframe）で開かれているか。中では印刷画面やファイル保存が使えない
@@ -324,6 +340,7 @@
       title: String(d.title ?? '').slice(0, 60),
       place: String(d.place ?? '').slice(0, 40),
       person: String(d.person ?? '').slice(0, 200),
+      color: /^#[0-9a-fA-F]{6}$/.test(d.color) ? d.color : '',
       remind: [0, 5, 10, 15, 30, 60].includes(Number(d.remind)) ? Number(d.remind) : 0,
       updatedAt: Number(d.updatedAt) || 0,
     };
@@ -376,6 +393,7 @@
     const b = body(ev);
     if (!b.place) delete b.place;
     if (!b.person) delete b.person;
+    if (!b.color) delete b.color;
     return b;
   };
 
@@ -516,7 +534,7 @@
         el.className = 'ev';
         el.style.top = `calc(var(--h) * ${ev.start} + 1px)`;
         el.style.height = `calc(var(--h) * ${ev.end - ev.start} - 2px)`;
-        el.style.background = m.color;
+        el.style.background = ev.color || m.color;
         const meta = eventMeta(ev);
         el.title = `${ev.title || '(無題)'} ${slotLabel(ev.start)}–${slotLabel(ev.end)}${meta ? '\n' + meta : ''}`;
         el.innerHTML = `<b>${esc(ev.title || '(無題)')}</b><small>${slotLabel(ev.start)}–${slotLabel(ev.end)}${ev.remind ? ' 🔔' : ''}</small>` +
@@ -652,6 +670,24 @@
   $('#fStart').innerHTML = Array.from({ length: SLOTS }, (_, i) => `<option value="${i}">${slotLabel(i)}</option>`).join('');
   $('#fEnd').innerHTML = Array.from({ length: SLOTS }, (_, i) => `<option value="${i + 1}">${slotLabel(i + 1)}</option>`).join('');
 
+  // 色の選択肢（先頭は「メンバーの色」＝色を指定しない）
+  let editColor = '';
+  function renderSwatches() {
+    const box = $('#fColor');
+    const member = state.members.find((m) => m.id === $('#fMember').value);
+    box.innerHTML = `<button type="button" class="swatch default" data-color="" aria-pressed="${!editColor}">` +
+      `<i style="background:${esc(member ? member.color : COLORS[0])}"></i>メンバーの色</button>` +
+      EVENT_COLORS.map((c, i) => `<button type="button" class="swatch" data-color="${c}" style="background:${c}" ` +
+        `aria-label="${EVENT_COLOR_NAMES[i]}" title="${EVENT_COLOR_NAMES[i]}" aria-pressed="${editColor === c}"></button>`).join('');
+  }
+  $('#fColor').addEventListener('click', (e) => {
+    const b = e.target.closest('.swatch');
+    if (!b) return;
+    editColor = b.dataset.color;
+    renderSwatches();
+  });
+  $('#fMember').addEventListener('change', renderSwatches);
+
   function openEditor(ev) {
     if (readOnly && !ev.id) return toast('閲覧のみのため、予定は追加できません。');
     editingId = ev.id || null;
@@ -664,6 +700,8 @@
     $('#fStart').value = ev.start;
     $('#fEnd').value = ev.end;
     $('#fRemind').value = ev.remind ?? 10;
+    editColor = ev.color || '';
+    renderSwatches();
     $('#fDelete').hidden = !editingId;
     $('#fError').hidden = true;
     editor.showModal();
@@ -683,6 +721,7 @@
       start: Number($('#fStart').value),
       end: Number($('#fEnd').value),
       remind: Number($('#fRemind').value),
+      color: editColor,
     };
     if (!state.members.some((m) => m.id === data.memberId)) return showErr('メンバー（表示する列）を選んでください。');
     if (data.end <= data.start) return showErr('終了時刻は開始時刻より後にしてください。');
@@ -998,7 +1037,7 @@
         const a = Math.max(ev.start, from), b = Math.min(ev.end, to);
         if (b <= a) continue;
         const ex = x + 6, ey = gy + (a - from) * rowH + 3, ew = colW - 12, eh = (b - a) * rowH - 6;
-        g.fillStyle = m.color; roundRect(g, ex, ey, ew, eh, 10); g.fill();
+        g.fillStyle = ev.color || m.color; roundRect(g, ex, ey, ew, eh, 10); g.fill();
         g.save(); g.beginPath(); g.rect(ex, ey, ew, eh); g.clip();
         g.fillStyle = '#ffffff';
         const title = ev.title || '(無題)', time = `${slotLabel(ev.start)}–${slotLabel(ev.end)}`;

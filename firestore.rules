@@ -20,7 +20,7 @@ service cloud.firestore {
     }
     match /boards/{boardId}/events/{eventId} {
       allow read, delete: if true;
-      allow create, update: if request.resource.data.keys().hasOnly(['date', 'memberId', 'start', 'end', 'title', 'place', 'person', 'remind', 'updatedAt'])
+      allow create, update: if request.resource.data.keys().hasOnly(['date', 'memberId', 'start', 'end', 'title', 'place', 'person', 'color', 'remind', 'updatedAt'])
         && request.resource.data.date is string && request.resource.data.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
         && request.resource.data.memberId is string && request.resource.data.memberId.size() <= 64
         && request.resource.data.start is int && request.resource.data.start >= 0 && request.resource.data.start < 144
@@ -29,6 +29,7 @@ service cloud.firestore {
         && request.resource.data.title is string && request.resource.data.title.size() <= 60
         && (!('place' in request.resource.data) || (request.resource.data.place is string && request.resource.data.place.size() <= 40))
         && (!('person' in request.resource.data) || (request.resource.data.person is string && request.resource.data.person.size() <= 200))
+        && (!('color' in request.resource.data) || (request.resource.data.color is string && request.resource.data.color.matches('^#[0-9a-fA-F]{6}$')))
         && request.resource.data.remind in [0, 5, 10, 15, 30, 60]
         && request.resource.data.updatedAt is number;
     }

@@ -398,10 +398,12 @@ const toastText = (page) => page.$eval('#toast', (t) => t.textContent);
     await b.waitForSelector('.ev');
     check('招待リンクを開いた人に同じ予定が見える', (await evTexts(b)).some((t) => t.includes('リンク共有の予定09:00–09:30')));
     await b.click('.ev');
-    check('場所・担当者が空なら保存データに含めない', [...store.values()].some((f) => f.title && !('place' in f) && !('person' in f)));
+    check('場所・担当者・色が空なら保存データに含めない', [...store.values()].some((f) => f.title && !('place' in f) && !('person' in f) && !('color' in f)));
     await b.fill('#fTitle', 'Bが変更');
     await b.fill('#fPlace', '体育館');
     await b.fill('#fPerson', '佐藤');
+    await b.click('#fColor .swatch[data-color="#dc2626"]');
+    check('色を選ぶと選択中の表示になる', (await b.getAttribute('#fColor .swatch[data-color="#dc2626"]', 'aria-pressed')) === 'true');
     await b.click('#editorForm button[type=submit]');
     const synced = await a.waitForFunction(() => [...document.querySelectorAll('.ev')].some((e) => e.textContent.includes('Bが変更')),
       null, { timeout: 8000 }).then(() => true, () => false);
@@ -409,6 +411,9 @@ const toastText = (page) => page.$eval('#toast', (t) => t.textContent);
     check('場所・担当者もサーバーに保存され、Aに表示される',
       [...store.values()].some((f) => f.place && f.place.stringValue === '体育館' && f.person.stringValue === '佐藤')
       && (await evTexts(a)).some((t) => t.includes('📍体育館') && t.includes('👤佐藤')));
+    check('選んだ色がサーバーに保存され、Aの画面でもその色になる',
+      [...store.values()].some((f) => f.color && f.color.stringValue === '#dc2626')
+      && (await a.$eval('.ev', (e) => getComputedStyle(e).backgroundColor)) === 'rgb(220, 38, 38)');
 
     const c = await ctx.newPage();
     await c.goto(base);

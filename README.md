@@ -43,5 +43,5 @@
 - `firestore.rules` … Firestore のアクセスルール（Firebase コンソールに貼り付け）
 - `tools/build_artifact.py <出力パス>` … claude.ai 公開用の本体部分を切り出す
 - `tests/e2e.js` … 動作テスト（Playwright + Chromium）。`node tests/e2e.js` で実行
-  - この端末モード・スマホ幅・claude.ai 共有モード・Firebase モード（いずれも疑似サーバーで2人同時編集を再現）の計57項目
+  - この端末モード・スマホ幅・claude.ai 共有モード・Firebase モード（いずれも疑似サーバーで2人同時編集を再現）の計61項目
 - 設計メモ: [docs/DESIGN.md](docs/DESIGN.md)（要件整理・技術構成・UI・通知方針・本番化手順）
