@@ -1,5 +1,5 @@
 // Offline cache: network-first for app files so updates land immediately, cache fallback at the gym/field.
-const CACHE = 'pitchlab-v3';
+const CACHE = 'pitchlab-v4';
 const ASSETS = [
   './', './index.html', './css/style.css', './manifest.webmanifest', './icon.svg',
   './js/app.js', './js/db.js', './js/seed.js', './js/logic.js', './js/ui.js', './js/derive.js', './js/charts.js', './js/share-canvas.js', './js/sore-alert.js',
@@ -10,8 +10,9 @@ self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)).then(() => self.skipWaiting()));
 });
 
+// Only touch PITCH LAB's own caches: other apps on the same github.io origin share Cache Storage.
 self.addEventListener('activate', (e) => {
-  e.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)))).then(() => self.clients.claim()));
+  e.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((k) => k.startsWith('pitchlab-') && k !== CACHE).map((k) => caches.delete(k)))).then(() => self.clients.claim()));
 });
 
 self.addEventListener('fetch', (e) => {
