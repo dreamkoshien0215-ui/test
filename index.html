@@ -3,12 +3,15 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!-- ホーム画面に追加したときの名前 -->
+<meta name="apple-mobile-web-app-title" content="城内タイムツリー">
+<meta name="application-name" content="城内タイムツリー">
 <!-- Firebase の接続設定（空なら「この端末のみ」で動作）。設定方法は docs/SETUP.md -->
 <script src="firebase-config.js"></script>
 </head>
 <body>
 <!-- @@ARTIFACT_START@@ ここから下が公開ページ本体（tools/build_artifact.py が切り出す） -->
-<title>10分タイムテーブル</title>
+<title>城内タイムツリー</title>
 <style>
   :root {
     --h: 20px;            /* 1スロット(10分)の高さ。ズームで変更 */
@@ -152,7 +155,7 @@
 </style>
 
 <header>
-  <h1>⏱ 10分スケジュール <span class="status" id="status">接続中…</span></h1>
+  <h1>⏱ 城内タイムツリー <span class="status" id="status">接続中…</span></h1>
   <div class="group">
     <button id="prev" aria-label="前日">◀</button>
     <input type="date" id="date" aria-label="日付">
@@ -1310,7 +1313,7 @@
   $('#invite').addEventListener('click', async () => {
     const url = location.href;
     if (navigator.share) {
-      try { await navigator.share({ title: '10分スケジュール', text: '予定表に招待します', url }); return; }
+      try { await navigator.share({ title: '城内タイムツリー', text: '予定表に招待します', url }); return; }
       catch (e) { if (e && e.name === 'AbortError') return; }
     }
     $('#inviteUrl').value = url;
