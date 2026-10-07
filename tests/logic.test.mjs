@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   assessReadiness, acwr, shoulderRomFlags, calcNutritionTargets, sumMeals,
-  progressPct, timeElapsedPct, youtubeId, dailyMax, addDays, daysBetween, channelHandle, channelSearchUrl,
+  progressPct, timeElapsedPct, youtubeId, dailyMax, addDays, daysBetween, channelHandle, channelSearchUrl, highSoreParts,
 } from '../js/logic.js';
 
 const D = '2026-10-07';
@@ -99,4 +99,11 @@ test('channelHandle accepts share links and bare handles', () => {
   assert.equal(channelHandle('https://example.com/@illstyle'), null);
   assert.equal(channelHandle('https://youtu.be/dQw4w9WgXcQ'), null);
   assert.equal(channelSearchUrl('illstyle', '90/90 股関節'), 'https://www.youtube.com/@illstyle/search?query=90%2F90%20%E8%82%A1%E9%96%A2%E7%AF%80');
+});
+
+test('highSoreParts: threshold 4 and newly-crossed detection', () => {
+  assert.deepEqual(highSoreParts({ elbow: 4, shoulder: 3, lowBack: 5 }).map((p) => p.key), ['elbow', 'lowBack']);
+  assert.deepEqual(highSoreParts({ elbow: 4 }, { elbow: 4 }), []); // already warned
+  assert.deepEqual(highSoreParts({ elbow: 5 }, { elbow: 3 }).map((p) => p.value), [5]);
+  assert.deepEqual(highSoreParts(undefined), []);
 });

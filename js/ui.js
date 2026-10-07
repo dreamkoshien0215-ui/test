@@ -33,6 +33,49 @@ export function closeSheet() {
   $$('.sheet-wrap').forEach((w) => w.remove());
 }
 
+/**
+ * Blocking warning dialog (role="alertdialog"). Resolves with the chosen action's value,
+ * or null when dismissed with Esc. Backdrop taps are ignored so the warning is acknowledged.
+ * @param {{title:string, lines:string[], actions:{label:string,value:string,primary?:boolean,danger?:boolean}[]}} opts
+ */
+export function warnDialog({ title, lines, actions }) {
+  return new Promise((resolve) => {
+    const prevFocus = document.activeElement;
+    const wrap = document.createElement('div');
+    wrap.className = 'dialog-wrap';
+    wrap.innerHTML = `<div class="dialog" role="alertdialog" aria-modal="true" aria-labelledby="dlg-t" aria-describedby="dlg-b">
+      <div class="dialog-icon" aria-hidden="true">⚠</div>
+      <h2 id="dlg-t">${esc(title)}</h2>
+      <div id="dlg-b" class="dialog-body">${lines.map((l) => `<p>${esc(l)}</p>`).join('')}</div>
+      <div class="dialog-actions">${actions.map((a, i) =>
+        `<button class="btn ${a.primary ? 'primary' : a.danger ? 'danger' : 'ghost'} block" data-i="${i}">${esc(a.label)}</button>`).join('')}</div>
+    </div>`;
+    const close = (v) => {
+      wrap.remove();
+      document.removeEventListener('keydown', onKey, true);
+      prevFocus?.focus?.();
+      resolve(v);
+    };
+    const onKey = (e) => {
+      if (e.key === 'Escape') { e.preventDefault(); close(null); }
+      if (e.key === 'Tab') { // keep focus inside the dialog
+        const btns = $$('button', wrap);
+        const i = btns.indexOf(document.activeElement);
+        const next = e.shiftKey ? (i <= 0 ? btns.length - 1 : i - 1) : (i + 1) % btns.length;
+        e.preventDefault(); btns[next].focus();
+      }
+    };
+    wrap.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-i]');
+      if (b) close(actions[Number(b.dataset.i)].value);
+    });
+    document.addEventListener('keydown', onKey, true);
+    document.body.appendChild(wrap);
+    navigator.vibrate?.([60, 40, 60]);
+    ($('.btn.primary', wrap) || $('button', wrap)).focus();
+  });
+}
+
 /** Number stepper with big +/- buttons (gloved / sweaty hands friendly). */
 export const stepper = (name, value, step = 1, { label = '', unit = '', min = 0 } = {}) => `
   <label class="stepper-field"><span class="lbl">${esc(label)}</span>

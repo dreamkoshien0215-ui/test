@@ -1,8 +1,8 @@
 // Offline cache: network-first for app files so updates land immediately, cache fallback at the gym/field.
-const CACHE = 'pitchlab-v2';
+const CACHE = 'pitchlab-v3';
 const ASSETS = [
   './', './index.html', './css/style.css', './manifest.webmanifest', './icon.svg',
-  './js/app.js', './js/db.js', './js/seed.js', './js/logic.js', './js/ui.js', './js/derive.js', './js/charts.js', './js/share-canvas.js',
+  './js/app.js', './js/db.js', './js/seed.js', './js/logic.js', './js/ui.js', './js/derive.js', './js/charts.js', './js/share-canvas.js', './js/sore-alert.js',
   './js/views/home.js', './js/views/train.js', './js/views/care.js', './js/views/food.js', './js/views/stats.js', './js/views/share.js', './js/views/settings.js',
 ];
 

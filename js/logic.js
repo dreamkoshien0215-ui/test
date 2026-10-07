@@ -9,6 +9,17 @@ export const SORE_PARTS = [
   { key: 'knee', label: '膝', critical: false },
 ];
 
+/** Soreness at or above this level triggers the blocking warning dialog. */
+export const SORE_ALERT_LEVEL = 4;
+
+/** Parts whose soreness is >= SORE_ALERT_LEVEL. When `prev` is given, only parts that newly crossed the threshold. */
+export function highSoreParts(soreness = {}, prev = null) {
+  const lvl = (o, k) => Number(o?.[k]) || 1;
+  return SORE_PARTS
+    .filter((p) => lvl(soreness, p.key) >= SORE_ALERT_LEVEL && (!prev || lvl(prev, p.key) < SORE_ALERT_LEVEL))
+    .map((p) => ({ ...p, value: lvl(soreness, p.key) }));
+}
+
 // ROM self-check items. side-specific values in degrees.
 export const ROM_ITEMS = [
   { key: 'thoracicRot', label: '胸郭回旋', unit: '°', ref: 45 },

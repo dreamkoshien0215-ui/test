@@ -1,7 +1,9 @@
 import * as store from '../db.js';
 import { esc, $, num, seg, stepper, levelInfo, fmt } from '../ui.js';
 import { readinessFor } from '../derive.js';
-import { SORE_PARTS, ROM_ITEMS, addDays } from '../logic.js';
+import { SORE_PARTS, ROM_ITEMS, addDays, highSoreParts } from '../logic.js';
+import { soreAlert } from '../sore-alert.js';
+import { showCategory } from './train.js';
 
 const SCALE = [1, 2, 3, 4, 5].map((v) => [v, String(v)]);
 
@@ -38,7 +40,8 @@ export function render(root, ctx) {
   <section class="card"><div class="eyebrow">直近14日の推移</div>${history(ctx.date)}</section>`;
 
   const form = $('#cond-form', root);
-  const save = () => {
+  let prevSoreness = { ...(c.soreness || {}) };
+  const save = async () => {
     const f = new FormData(form);
     const soreness = Object.fromEntries(SORE_PARTS.map((p) => [p.key, num(f.get(`s_${p.key}`)) ?? 1]));
     const rom = {};
@@ -48,6 +51,13 @@ export function render(root, ctx) {
     }
     store.upsertCondition(ctx.date, { soreness, fatigue: num(f.get('fatigue')) ?? 1, sleepHours: num(f.get('sleepHours')), rom, note: f.get('note') });
     paintReadiness(root, ctx);
+    // Warn only when a part newly reaches 4+, so re-saving other fields doesn't re-open the dialog.
+    const crossed = highSoreParts(soreness, prevSoreness);
+    prevSoreness = soreness;
+    if (crossed.length && (await soreAlert(crossed)) === 'care') {
+      showCategory('cat-care');
+      location.hash = '#/train';
+    }
   };
   form.addEventListener('change', save);
   form.addEventListener('submit', (e) => e.preventDefault());

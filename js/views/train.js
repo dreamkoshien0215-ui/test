@@ -1,9 +1,14 @@
 import * as store from '../db.js';
 import { esc, $, $$, num, stepper, seg, openSheet, closeSheet, toast, formData, levelInfo } from '../ui.js';
 import { readinessFor, workoutSummary } from '../derive.js';
-import { youtubeId, youtubeSearchUrl, channelSearchUrl } from '../logic.js';
+import { youtubeId, youtubeSearchUrl, channelSearchUrl, highSoreParts } from '../logic.js';
+import { soreLogGuard } from '../sore-alert.js';
 
 let activeCat = 'all';
+/** Pre-select a category filter (e.g. jump to care drills from the soreness warning). */
+export const showCategory = (id) => { activeCat = id; };
+// High-intensity categories that should not be trained on a soreness-4+ day.
+const HIGH_INTENSITY = new Set(['cat-power', 'cat-core']);
 const RPE_OPTS = [6, 7, 8, 9, 10].map((v) => [v, String(v)]);
 
 export function render(root, ctx) {
@@ -95,9 +100,11 @@ function openDrill(id, ctx, focusLog = false) {
     </form>
     <div class="row gap"><button class="btn ghost grow" data-edit>編集</button><button class="btn ghost grow" data-fav>${d.favorite ? '★ お気に入り解除' : '☆ お気に入り'}</button></div>`,
   (body) => {
-    $('.log-form', body).onsubmit = (e) => {
+    $('.log-form', body).onsubmit = async (e) => {
       e.preventDefault();
       const f = formData(e.target);
+      const sore = highSoreParts(store.conditionOn(ctx.date)?.soreness);
+      if (sore.length && HIGH_INTENSITY.has(d.categoryId) && (await soreLogGuard(sore, d.name)) !== 'log') return;
       store.insert('workoutLogs', {
         date: ctx.date, drillId: id, weightKg: num(f.weightKg) ?? 0, reps: num(f.reps) ?? 0, sets: num(f.sets) ?? 1, rpe: num(f.rpe) ?? 7, note: f.note.trim(),
       });
