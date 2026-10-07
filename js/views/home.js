@@ -1,5 +1,7 @@
-import { esc, fmt, levelInfo } from '../ui.js';
-import { readinessFor, velocityView, nutritionView, workoutSummary } from '../derive.js';
+import * as store from '../db.js';
+import { esc, fmt, levelInfo, $, toast } from '../ui.js';
+import { renderCard, shareOrDownload } from '../share-canvas.js';
+import { readinessFor, velocityView, nutritionView, workoutSummary, shareData } from '../derive.js';
 import { daysBetween } from '../logic.js';
 
 export function render(root, ctx) {
@@ -10,8 +12,11 @@ export function render(root, ctx) {
   const n = nutritionView(date);
   const wk = workoutSummary(date);
   const daysLeft = daysBetween(date, v.milestone.targetDate);
+  const backupAge = store.backupAgeDays();
 
   root.innerHTML = `
+  ${backupAge != null && backupAge >= 30 ? `<a class="alert lv-caution" href="#/settings">
+    <b>💾 バックアップ推奨</b>${backupAge === Infinity ? 'まだ一度もバックアップしていません。' : `最終バックアップから${backupAge}日経過。`}データは端末内のみに保存されています。設定から書き出しを。</a>` : ''}
   <section class="card readiness ${lv.cls}">
     <div class="row between">
       <div>
@@ -45,7 +50,20 @@ export function render(root, ctx) {
     ${n.targets ? macroBars(n) : '<p class="muted small">設定でプロフィールを入力してください。</p>'}
   </section>
 
-  <a class="btn primary block lg" href="#/share">📸 今日のカードを作成</a>`;
+  <div class="row gap">
+    <a class="btn ghost grow lg" href="#/share">📸 カードを編集</a>
+    <button class="btn primary grow lg" data-quick-save>⬇ 画像を保存</button>
+  </div>`;
+
+  // One-tap save: render the card off-screen with the current share settings and download it.
+  $('[data-quick-save]', root).onclick = async () => {
+    const st = store.db().shareSettings;
+    const canvas = document.createElement('canvas');
+    await document.fonts?.ready;
+    renderCard(canvas, shareData(date), st);
+    await shareOrDownload(canvas, st.format, `pitchlab_${date}_${st.size}`, false);
+    toast(`${st.format.toUpperCase()}画像を保存しました`);
+  };
 }
 
 export function macroBars(n) {

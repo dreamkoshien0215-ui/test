@@ -19,7 +19,7 @@ export function render(root, ctx) {
     <label>SNSアカウント名<input class="input" name="handle" value="${esc(st.handle)}" placeholder="@your_id"></label>
   </section>
   <div class="row gap sticky-actions">
-    <button class="btn ghost grow" data-dl>⬇ 保存</button>
+    <button class="btn ghost grow" data-dl>⬇ ${st.format === 'jpeg' ? 'JPEG' : 'PNG'}で保存</button>
     <button class="btn primary grow" data-share>↗ シェア</button>
   </div>`;
 
@@ -35,10 +35,11 @@ export function render(root, ctx) {
     else if (t.name?.startsWith('sec_')) st.sections[t.name.slice(4)] = t.checked;
     else if (t.name === 'handle') st.handle = t.value.trim();
     store.persist();
+    $('[data-dl]', root).textContent = `⬇ ${st.format === 'jpeg' ? 'JPEG' : 'PNG'}で保存`;
     draw();
   });
   const fname = () => `pitchlab_${ctx.date}_${st.size}`;
-  $('[data-dl]', root).onclick = async () => { await shareOrDownload(canvas, st.format, fname(), false); toast('画像を保存しました'); };
+  $('[data-dl]', root).onclick = async () => { await shareOrDownload(canvas, st.format, fname(), false); toast(`${st.format.toUpperCase()}画像を保存しました`); };
   $('[data-share]', root).onclick = async () => {
     const r = await shareOrDownload(canvas, st.format, fname(), true);
     if (r === 'downloaded') toast('共有非対応のため画像を保存しました');

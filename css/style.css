@@ -164,7 +164,7 @@ textarea.input { resize: vertical; }
 .reasons .r-rest { border-color: var(--rest); }
 .reasons .r-caution, .reasons .r-warn { border-color: var(--warn); }
 .reasons .r-go { border-color: var(--go); }
-.alert { padding: 12px 14px; border-radius: 14px; border: 2px solid var(--lv); background: color-mix(in srgb, var(--lv) 14%, var(--card)); font-size: 13px; }
+.alert { display: block; padding: 12px 14px; border-radius: 14px; border: 2px solid var(--lv); background: color-mix(in srgb, var(--lv) 14%, var(--card)); font-size: 13px; }
 .alert b { display: block; color: var(--lv); }
 
 /* ---------- velocity / bars ---------- */

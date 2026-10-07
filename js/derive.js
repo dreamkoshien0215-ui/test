@@ -76,6 +76,8 @@ export function shareData(date) {
     workouts: workoutSummary(date).map(({ name, detail }) => ({ name: name.replace(/（.*?）/g, ''), detail })),
     velocity: velocityView(date),
     readiness: r,
-    soreness: SORE_PARTS.slice(0, 4).map((p) => ({ label: p.label, value: Number(c?.soreness?.[p.key]) || 1 })),
+    hasCondition: !!c,
+    // Throwing-arm parts (肩・肘) only — what matters for a pitcher's status card.
+    soreness: SORE_PARTS.filter((p) => p.critical).map((p) => ({ label: p.label, value: Number(c?.soreness?.[p.key]) || 1 })),
   };
 }

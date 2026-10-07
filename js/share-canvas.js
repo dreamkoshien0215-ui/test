@@ -68,44 +68,53 @@ export function renderCard(canvas, data, settings) {
   y += story ? 60 : 40;
 
   const s = settings.sections || {};
-  const blocks = [];
-  if (s.velocity) blocks.push('velocity');
-  if (s.condition) blocks.push('condition');
-  if (s.workout) blocks.push('workout');
-
-  const footerH = 80;
-  const avail = H - y - footerH - (story ? 140 : 20);
   const gap = 28;
-  // velocity + condition share a row on feed; stacked on story
-  const rows = [];
-  const top = blocks.filter((b) => b !== 'workout');
-  if (top.length) rows.push(story ? top.map((b) => [b]) : [top]);
-  const flatRows = rows.flat();
-  if (blocks.includes('workout')) flatRows.push(['workout']);
+  const bottom = H - (story ? 260 : 116); // panels end here; footer sits below
+  const fixedH = story ? 300 : 260;
 
-  const fixedH = story ? 300 : 280;
-  const workoutH = Math.max(160, avail - flatRows.filter((r) => r[0] !== 'workout').length * (fixedH + gap));
-
-  for (const row of flatRows) {
-    const rh = row[0] === 'workout' ? workoutH : fixedH;
+  // Top: velocity + condition (side by side on feed, stacked on story)
+  const top = [s.velocity && 'velocity', s.condition && 'condition'].filter(Boolean);
+  const rows = top.length ? (story ? top.map((b) => [b]) : [top]) : [];
+  for (const row of rows) {
     const cw = (W - P * 2 - gap * (row.length - 1)) / row.length;
     row.forEach((b, i) => {
       const x = P + i * (cw + gap);
-      panel(ctx, th, x, y, cw, rh);
-      if (b === 'velocity') drawVelocity(ctx, th, data.velocity, x, y, cw, rh);
-      if (b === 'condition') drawCondition(ctx, th, data, x, y, cw, rh);
-      if (b === 'workout') drawWorkout(ctx, th, data.workouts, x, y, cw, rh, story);
+      panel(ctx, th, x, y, cw, fixedH);
+      if (b === 'velocity') drawVelocity(ctx, th, data.velocity, x, y, cw, fixedH);
+      else drawCondition(ctx, th, data, x, y, cw, fixedH);
     });
-    y += rh + gap;
+    y += fixedH + gap;
+  }
+
+  // Bottom: menu sized to its content; leftover space goes to a velocity trend graph.
+  const remaining = bottom - y;
+  const series = (data.velocity.series || []).filter((p) => p.date <= data.date).slice(-12);
+  const canTrend = s.velocity && series.length >= 2;
+  const fullW = W - P * 2;
+  if (s.workout) {
+    const need = Math.max(200, workoutHeight(data.workouts.length, story));
+    const split = canTrend && remaining - need - gap >= 170;
+    const wh = split ? need : remaining;
+    panel(ctx, th, P, y, fullW, wh);
+    drawWorkout(ctx, th, data.workouts, P, y, fullW, wh, story);
+    y += wh + gap;
+    if (split) { panel(ctx, th, P, y, fullW, bottom - y); drawTrend(ctx, th, series, data.velocity.target, P, y, fullW, bottom - y); }
+  } else if (canTrend && remaining >= 170) {
+    panel(ctx, th, P, y, fullW, remaining);
+    drawTrend(ctx, th, series, data.velocity.target, P, y, fullW, remaining);
   }
 
   // footer
+  const fy = H - (story ? 170 : 56);
   ctx.fillStyle = th.muted; ctx.font = `500 26px ${FONT}`;
-  ctx.fillText(data.handle ? `@${data.handle.replace(/^@/, '')}` : '#球速アップ #ピッチャー', P, H - (story ? 120 : P));
+  ctx.fillText(data.handle ? `@${data.handle.replace(/^@/, '')}` : '#球速アップ #ピッチャー', P, fy);
   ctx.textAlign = 'right'; ctx.fillStyle = th.accent; ctx.font = `800 26px ${FONT}`;
-  ctx.fillText('PITCH LAB', W - P, H - (story ? 120 : P));
+  ctx.fillText('PITCH LAB', W - P, fy);
   ctx.textAlign = 'left';
 }
+
+const lineHeight = (story) => (story ? 76 : 60);
+const workoutHeight = (n, story) => 92 + Math.max(1, n) * lineHeight(story);
 
 function panel(ctx, th, x, y, w, h) {
   ctx.save();
@@ -151,30 +160,69 @@ function drawCondition(ctx, th, data, x, y, w, h) {
   label(ctx, th, 'CONDITION', ix, y + 56);
   const color = { go: '#22c55e', caution: '#f59e0b', rest: '#ef4444' }[r.level] || th.muted;
   const [en, ja] = LEVEL_TXT[r.level] || LEVEL_TXT.unknown;
-  ctx.fillStyle = color; ctx.font = `900 64px ${FONT}`;
-  ctx.fillText(en, ix, y + 136);
-  ctx.fillStyle = th.fg; ctx.font = `700 28px ${FONT}`;
-  ctx.fillText(`${ja}${r.score != null ? `  ·  Readiness ${r.score}` : ''}`, ix, y + 180);
-  // soreness dots
-  const items = (data.soreness || []).slice(0, 4);
+  ctx.fillStyle = color; ctx.font = `900 ${Math.min(64, w * 0.13)}px ${FONT}`;
+  ctx.fillText(en, ix, y + 122);
+  ctx.fillStyle = th.fg; ctx.font = `700 26px ${FONT}`;
+  ctx.fillText(`${ja}${r.score != null ? ` · Readiness ${r.score}` : ''}`, ix, y + 158);
+  // Throwing-arm status: shoulder / elbow
+  const items = (data.soreness || []).slice(0, 2);
   const cw = (w - 72) / Math.max(1, items.length);
   items.forEach((it, i) => {
     const cx = ix + i * cw;
-    ctx.fillStyle = th.muted; ctx.font = `600 20px ${FONT}`;
-    ctx.fillText(it.label, cx, y + h - 50);
+    const c = it.value >= 4 ? '#ef4444' : it.value === 3 ? '#f59e0b' : th.accent;
+    ctx.fillStyle = th.fg; ctx.font = `800 28px ${FONT}`;
+    ctx.fillText(it.label, cx, y + h - 52);
+    ctx.fillStyle = c; ctx.font = `800 24px ${FONT}`;
+    ctx.fillText(data.hasCondition ? `${it.value}/5` : '—', cx + ctx.measureText(it.label).width + 40, y + h - 52);
     for (let k = 1; k <= 5; k++) {
-      ctx.beginPath(); ctx.arc(cx + (k - 1) * 18 + 6, y + h - 28, 6, 0, Math.PI * 2);
-      ctx.fillStyle = k <= it.value ? (it.value >= 4 ? '#ef4444' : it.value === 3 ? '#f59e0b' : th.accent) : th.muted + '44';
+      ctx.beginPath(); ctx.arc(cx + (k - 1) * 26 + 9, y + h - 28, 9, 0, Math.PI * 2);
+      ctx.fillStyle = data.hasCondition && k <= it.value ? c : th.muted + '44';
       ctx.fill();
     }
   });
 }
 
+function drawTrend(ctx, th, series, target, x, y, w, h) {
+  const ix = x + 36;
+  label(ctx, th, 'VELOCITY TREND', ix, y + 56);
+  // Short panels (feed card) put the date range on the title row to give the line more room.
+  const compact = h < 260;
+  const range = `${series[0].date.slice(5).replace('-', '/')} → ${series.at(-1).date.slice(5).replace('-', '/')}`;
+  if (compact) { ctx.fillStyle = th.muted; ctx.font = `600 20px ${FONT}`; ctx.fillText(range, ix + ctx.measureText('VELOCITY TREND').width * 1.2 + 24, y + 56); }
+  const pad = { l: ix, r: x + w - 36, t: y + (compact ? 96 : 90), b: y + h - (compact ? 28 : 44) };
+  const vals = series.map((p) => p.value).concat(target);
+  let min = Math.min(...vals) - 2; const max = Math.max(...vals) + 1;
+  if (max - min < 6) min = max - 6;
+  const px = (i) => pad.l + (i / (series.length - 1)) * (pad.r - pad.l);
+  const py = (v) => pad.b - ((v - min) / (max - min)) * (pad.b - pad.t);
+  // target line
+  ctx.save(); ctx.setLineDash([10, 8]); ctx.strokeStyle = th.accent2; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(pad.l, py(target)); ctx.lineTo(pad.r, py(target)); ctx.stroke(); ctx.restore();
+  ctx.fillStyle = th.accent2; ctx.font = `800 22px ${FONT}`; ctx.textAlign = 'right';
+  ctx.fillText(`TARGET ${target}`, pad.r, py(target) - 10); ctx.textAlign = 'left';
+  // area + line
+  const grad = ctx.createLinearGradient(0, pad.t, 0, pad.b);
+  grad.addColorStop(0, th.accent + '66'); grad.addColorStop(1, th.accent + '00');
+  ctx.beginPath(); series.forEach((p, i) => (i ? ctx.lineTo(px(i), py(p.value)) : ctx.moveTo(px(i), py(p.value))));
+  ctx.lineTo(px(series.length - 1), pad.b); ctx.lineTo(px(0), pad.b); ctx.closePath(); ctx.fillStyle = grad; ctx.fill();
+  ctx.beginPath(); series.forEach((p, i) => (i ? ctx.lineTo(px(i), py(p.value)) : ctx.moveTo(px(i), py(p.value))));
+  ctx.strokeStyle = th.accent; ctx.lineWidth = 5; ctx.lineJoin = 'round'; ctx.stroke();
+  series.forEach((p, i) => { ctx.beginPath(); ctx.arc(px(i), py(p.value), 7, 0, Math.PI * 2); ctx.fillStyle = th.accent; ctx.fill(); });
+  if (compact) return;
+  // axis dates
+  ctx.fillStyle = th.muted; ctx.font = `600 20px ${FONT}`;
+  ctx.fillText(series[0].date.slice(5).replace('-', '/'), pad.l, y + h - 16);
+  ctx.textAlign = 'right'; ctx.fillText(series.at(-1).date.slice(5).replace('-', '/'), pad.r, y + h - 16); ctx.textAlign = 'left';
+}
+
 function drawWorkout(ctx, th, workouts, x, y, w, h, story) {
   const ix = x + 36;
   label(ctx, th, 'TRAINING MENU', ix, y + 56);
-  const lineH = story ? 76 : 60;
-  const maxLines = Math.max(1, Math.floor((h - 90) / lineH));
+  const base = lineHeight(story);
+  const maxLines = Math.max(1, Math.floor((h - 92) / base));
+  // Spread a short list over the panel instead of leaving a block of empty space.
+  const n = Math.max(1, workouts.length);
+  const lineH = n <= maxLines ? Math.min(base * 1.5, Math.max(base, (h - 92) / n)) : base;
   const list = workouts.length ? workouts : [{ name: '本日の記録なし', detail: '' }];
   const shown = list.slice(0, list.length > maxLines ? maxLines - 1 : maxLines);
   shown.forEach((wk, i) => {

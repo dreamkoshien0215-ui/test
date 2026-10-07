@@ -1,6 +1,6 @@
 import * as store from './db.js';
 import { todayStr, addDays } from './logic.js';
-import { $, $$, closeSheet } from './ui.js';
+import { $, $$, closeSheet, toast } from './ui.js';
 import * as home from './views/home.js';
 import * as train from './views/train.js';
 import * as care from './views/care.js';
@@ -57,6 +57,9 @@ function setDate(d) {
 }
 
 store.load();
+store.setSaveErrorHandler(() => toast('⚠ 保存に失敗しました（容量不足/プライベートモード）。バックアップを書き出してください'));
+store.watchOtherTabs(() => render());
+store.requestPersistence();
 window.addEventListener('hashchange', () => { closeSheet(); render(); });
 $('#date-prev').onclick = () => setDate(addDays(ctx.date, -1));
 $('#date-next').onclick = () => setDate(addDays(ctx.date, 1));

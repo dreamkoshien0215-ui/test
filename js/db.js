@@ -28,6 +28,7 @@ function freshState() {
     foods: structuredClone(SEED_FOODS),
     refChannels: [{ id: 'ch-illstyle', handle: 'illstyle', name: 'illstyle' }], // 参考YouTubeチャンネル
     mealLogs: [], // {id,date,meal,foodId,name,kcal,p,f,c,qty}
+    meta: { lastBackupAt: null },
     shareSettings: {
       theme: 'sporty', size: 'feed', format: 'png', handle: '',
       sections: { workout: true, velocity: true, condition: true },
@@ -40,6 +41,7 @@ function migrate(state) {
   const base = freshState();
   for (const k of Object.keys(base)) if (state[k] === undefined) state[k] = base[k];
   state.profile = { ...base.profile, ...state.profile };
+  state.meta = { ...base.meta, ...state.meta };
   state.shareSettings = { ...base.shareSettings, ...state.shareSettings, sections: { ...base.shareSettings.sections, ...(state.shareSettings?.sections || {}) } };
   state.schemaVersion = SCHEMA_VERSION;
   return state;
@@ -47,6 +49,8 @@ function migrate(state) {
 
 let state;
 const listeners = new Set();
+let onSaveError = () => {};
+export const setSaveErrorHandler = (fn) => { onSaveError = fn; };
 
 export function load() {
   try {
@@ -59,8 +63,37 @@ export function load() {
 }
 
 export function persist() {
-  try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) { console.error('save failed', e); }
+  try {
+    localStorage.setItem(KEY, JSON.stringify(state));
+  } catch (e) {
+    console.error('save failed', e);
+    onSaveError(e); // e.g. QuotaExceededError / private browsing — tell the user instead of silently losing data
+  }
   listeners.forEach((fn) => fn(state));
+}
+
+/**
+ * Ask the browser not to evict our storage (Safari otherwise may clear site data
+ * after 7 days without a visit unless the app is added to the home screen).
+ */
+export async function requestPersistence() {
+  try { return (await navigator.storage?.persist?.()) ?? false; } catch { return false; }
+}
+
+/** Keep several open tabs in sync: reload state when another tab saves. */
+export function watchOtherTabs(onReload) {
+  window.addEventListener('storage', (e) => {
+    if (e.key !== KEY || !e.newValue) return;
+    try { state = migrate(JSON.parse(e.newValue)); onReload(); } catch { /* ignore malformed */ }
+  });
+}
+
+const logCount = () => state.workoutLogs.length + state.conditionLogs.length + state.metricLogs.length + state.mealLogs.length;
+/** Days since last JSON export, or null when there is nothing worth backing up yet. */
+export function backupAgeDays() {
+  if (logCount() < 10) return null;
+  const last = state.meta.lastBackupAt;
+  return last ? Math.floor((Date.now() - Date.parse(last)) / 86400000) : Infinity;
 }
 
 export const db = () => state;
@@ -102,7 +135,11 @@ export function upsertCondition(date, patch) {
 }
 
 // ---------- backup ----------
-export const exportJson = () => JSON.stringify(state, null, 2);
+export function exportJson() {
+  state.meta.lastBackupAt = new Date().toISOString();
+  persist();
+  return JSON.stringify(state, null, 2);
+}
 export function importJson(text) {
   const parsed = JSON.parse(text);
   if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.drills)) throw new Error('不正なバックアップファイルです');

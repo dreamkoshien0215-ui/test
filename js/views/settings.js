@@ -28,6 +28,7 @@ export function render(root, ctx) {
   </section>
   <section class="card stack">
     <div class="eyebrow">データ管理（端末内にのみ保存されています）</div>
+    <p class="muted small" style="margin:0">入力は操作のたびにブラウザ（localStorage）へ自動保存され、アプリを閉じても残ります。機種変更・ブラウザのデータ消去に備えて、月1回程度の書き出しを推奨します。<br>最終バックアップ：${store.db().meta.lastBackupAt ? new Date(store.db().meta.lastBackupAt).toLocaleDateString('ja-JP') : 'なし'}</p>
     <button class="btn ghost block" data-export>⬇ バックアップをエクスポート (JSON)</button>
     <label class="btn ghost block">⬆ バックアップから復元<input type="file" accept="application/json" hidden data-import></label>
     <button class="btn danger block" data-reset>全データを初期化</button>
@@ -59,6 +60,7 @@ export function render(root, ctx) {
     a.download = `pitchlab-backup-${ctx.date}.json`;
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    ctx.refresh();
   };
   $('[data-import]', root).onchange = async (e) => {
     const file = e.target.files[0];
