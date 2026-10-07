@@ -1,1 +1,31 @@
-# test
+# PITCH LAB — Road to 145km/h
+
+投手の **球速145km/h達成** と **肩・肘・腰の障害予防** に特化した、個人用のトレーニング＆コンディショニングアプリ（オフライン対応PWA・ビルド不要・外部依存なし）。
+
+| 機能 | 内容 |
+|---|---|
+| 🏋️ ドリル作成・実施ログ | 5カテゴリ＋初期ドリル11種、YouTube URL/検索キーワード・意識ポイント、参考チャンネル（@illstyle）内をワンタップ検索、重量/回数/セット/RPE記録（前回値を自動プリセット） |
+| 🩺 コンディション | 部位別違和感(1-5)、疲労・睡眠、ROMセルフチェック(L/R)、GO/CAUTION/REST自動判定、GIRD・ACWR警告 |
+| 🍙 栄養 | Mifflin-St Jeor式からカロリー・PFC目標を算出、よく食べる食品のワンタップ入力 |
+| 📈 数値トラッキング | 球速（目標145km/h線つきグラフ）、筋力指標、ROM推移、マイルストーン進捗率 |
+| 📸 SNSカード | 1080×1080 / 1080×1920、PNG/JPEG、3テーマ、Web Share APIで共有 |
+
+## 起動
+
+```bash
+npm start          # http://localhost:8080 で配信（ES Modulesのため file:// では動きません）
+npm test           # ロジックのユニットテスト
+```
+
+## 公開（GitHub Pages）
+
+`main` に push すると `.github/workflows/pages.yml` がテスト → 公開を自動で行います。
+
+- 公開URL: **https://dreamkoshien0215-ui.github.io/test/**
+- 初回のみ: リポジトリの **Settings → Pages → Build and deployment → Source** を **GitHub Actions** にする
+
+スマホではこのURLを開き、ブラウザの「ホーム画面に追加」で使ってください（iPhoneはSafariの共有メニュー →「ホーム画面に追加」）。データは端末内（localStorage）にのみ保存されます。設定画面から定期的にバックアップ(JSON)を取ってください。
+
+設計（画面構成・データスキーマ・実装ガイド）は [docs/DESIGN.md](docs/DESIGN.md) を参照。
+
+> 本アプリの警告はセルフケアの目安です。痛みが続く場合は医療機関を受診してください。

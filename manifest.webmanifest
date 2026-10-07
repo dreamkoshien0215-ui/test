@@ -1,0 +1,12 @@
+{
+  "name": "PITCH LAB — Road to 145",
+  "short_name": "PITCH LAB",
+  "start_url": "./#/home",
+  "display": "standalone",
+  "background_color": "#0b0f17",
+  "theme_color": "#0b0f17",
+  "lang": "ja",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
