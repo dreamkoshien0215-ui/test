@@ -87,8 +87,11 @@ interface AppState {
   milestones: Milestone[];
   foods: Food[];
   mealLogs: MealLog[];
+  refChannels: RefChannel[];       // 参考YouTubeチャンネル（初期値: @illstyle）
   shareSettings: ShareSettings;
 }
+
+interface RefChannel { id: string; handle: string; name: string } // handle = '@' を除いたチャンネルID
 
 interface Profile {
   name: string; throwingArm: 'R' | 'L';
@@ -222,4 +225,6 @@ tests/logic.test.mjs    node:test によるロジックのユニットテスト
 | リカバリー・ケア | バンデット・ショルダー・サーキット | 減速筋で肘を守る | チューブ エクササイズ ピッチング ショルダーケア |
 | 〃 | 前腕・腕橈骨筋リリース | 前腕の張りを抜く | 前腕 ほぐし 肘痛 予防 野球 |
 
-YouTube URLは空で登録し、ドリル詳細に**検索リンク**を表示。気に入った動画が見つかったら「編集」でURLを貼るとサムネイル表示に切り替わる。
+YouTube URLは空で登録し、ドリル詳細に**検索リンク**を表示。
+参考チャンネル（初期値 **@illstyle**、設定画面で追加・削除可）ごとに「▶ @illstyle で探す」ボタンを出し、
+`https://www.youtube.com/@illstyle/search?query=<検索キーワード>` でチャンネル内の動画だけを検索する。気に入った動画が見つかったら「編集」でURLを貼るとサムネイル表示に切り替わる。

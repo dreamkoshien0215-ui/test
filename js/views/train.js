@@ -1,7 +1,7 @@
 import * as store from '../db.js';
 import { esc, $, $$, num, stepper, seg, openSheet, closeSheet, toast, formData, levelInfo } from '../ui.js';
 import { readinessFor, workoutSummary } from '../derive.js';
-import { youtubeId, youtubeSearchUrl } from '../logic.js';
+import { youtubeId, youtubeSearchUrl, channelSearchUrl } from '../logic.js';
 
 let activeCat = 'all';
 const RPE_OPTS = [6, 7, 8, 9, 10].map((v) => [v, String(v)]);
@@ -58,13 +58,15 @@ export function render(root, ctx) {
 
 function videoBlock(d) {
   const id = youtubeId(d.youtubeUrl);
-  if (id) {
-    return `<a class="yt" href="${esc(d.youtubeUrl)}" target="_blank" rel="noopener">
-      <img src="https://i.ytimg.com/vi/${esc(id)}/mqdefault.jpg" alt="" loading="lazy"><span class="yt-play">▶</span></a>`;
-  }
-  return d.youtubeQuery
-    ? `<a class="btn ghost block" href="${esc(youtubeSearchUrl(d.youtubeQuery))}" target="_blank" rel="noopener">▶ YouTubeで検索：${esc(d.youtubeQuery)}</a>`
-    : '';
+  const thumb = id ? `<a class="yt" href="${esc(d.youtubeUrl)}" target="_blank" rel="noopener">
+      <img src="https://i.ytimg.com/vi/${esc(id)}/mqdefault.jpg" alt="" loading="lazy"><span class="yt-play">▶</span></a>` : '';
+  const q = d.youtubeQuery || d.name.replace(/（.*?）/g, '');
+  // Search inside the user's reference channels first, then all of YouTube.
+  const channels = store.db().refChannels.map((c) =>
+    `<a class="btn ${id ? 'ghost' : 'primary'} yt-search" href="${esc(channelSearchUrl(c.handle, q))}" target="_blank" rel="noopener">▶ @${esc(c.handle)} で探す</a>`).join('');
+  return `${thumb}<div class="yt-links">${channels}
+    <a class="btn ghost yt-search" href="${esc(youtubeSearchUrl(q))}" target="_blank" rel="noopener">YouTube全体で検索</a></div>
+    <div class="muted small">検索ワード：${esc(q)}${id ? '' : '<br>良い動画が見つかったら「編集」でURLを貼るとここにサムネイル表示されます。'}</div>`;
 }
 
 function openDrill(id, ctx, focusLog = false) {

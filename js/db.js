@@ -26,6 +26,7 @@ function freshState() {
       { id: 'ms-145', title: '最速145km/h', metricKey: 'velocity', startValue: null, targetValue: 145, startDate: today, targetDate: addDays(today, 365) },
     ],
     foods: structuredClone(SEED_FOODS),
+    refChannels: [{ id: 'ch-illstyle', handle: 'illstyle', name: 'illstyle' }], // 参考YouTubeチャンネル
     mealLogs: [], // {id,date,meal,foodId,name,kcal,p,f,c,qty}
     shareSettings: {
       theme: 'sporty', size: 'feed', format: 'png', handle: '',

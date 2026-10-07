@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   assessReadiness, acwr, shoulderRomFlags, calcNutritionTargets, sumMeals,
-  progressPct, timeElapsedPct, youtubeId, dailyMax, addDays, daysBetween,
+  progressPct, timeElapsedPct, youtubeId, dailyMax, addDays, daysBetween, channelHandle, channelSearchUrl,
 } from '../js/logic.js';
 
 const D = '2026-10-07';
@@ -90,4 +90,13 @@ test('dailyMax keeps best per day sorted', () => {
     dailyMax([{ date: '2026-10-02', value: 130 }, { date: '2026-10-01', value: 128 }, { date: '2026-10-02', value: 133 }]),
     [{ date: '2026-10-01', value: 128 }, { date: '2026-10-02', value: 133 }],
   );
+});
+
+test('channelHandle accepts share links and bare handles', () => {
+  assert.equal(channelHandle('https://youtube.com/@illstyle?si=hqnSgntGArd_BSpY'), 'illstyle');
+  assert.equal(channelHandle('https://www.youtube.com/@illstyle/videos'), 'illstyle');
+  assert.equal(channelHandle('@illstyle'), 'illstyle');
+  assert.equal(channelHandle('https://example.com/@illstyle'), null);
+  assert.equal(channelHandle('https://youtu.be/dQw4w9WgXcQ'), null);
+  assert.equal(channelSearchUrl('illstyle', '90/90 股関節'), 'https://www.youtube.com/@illstyle/search?query=90%2F90%20%E8%82%A1%E9%96%A2%E7%AF%80');
 });

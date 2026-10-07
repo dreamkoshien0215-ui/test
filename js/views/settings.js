@@ -1,5 +1,6 @@
 import * as store from '../db.js';
-import { esc, $, num, seg, toast, formData } from '../ui.js';
+import { esc, $, $$, num, seg, toast, formData } from '../ui.js';
+import { channelHandle, channelUrl } from '../logic.js';
 
 export function render(root, ctx) {
   const p = store.db().profile;
@@ -19,6 +20,13 @@ export function render(root, ctx) {
     </form>
   </section>
   <section class="card stack">
+    <div class="eyebrow">参考YouTubeチャンネル</div>
+    <p class="muted small" style="margin:0">ドリル詳細の「▶ @チャンネル で探す」から、そのチャンネル内を種目キーワードで検索できます。</p>
+    <ul class="list compact">${store.db().refChannels.map((c) => `<li><a class="grow link" href="${esc(channelUrl(c.handle))}" target="_blank" rel="noopener">@${esc(c.handle)}</a>
+      <button class="icon-btn" data-del-ch="${esc(c.id)}" aria-label="削除">🗑</button></li>`).join('') || '<li class="muted small">未登録</li>'}</ul>
+    <form id="ch-form" class="row gap"><input class="input grow" name="ch" placeholder="チャンネルURL または @ハンドル" required><button class="btn primary">追加</button></form>
+  </section>
+  <section class="card stack">
     <div class="eyebrow">データ管理（端末内にのみ保存されています）</div>
     <button class="btn ghost block" data-export>⬇ バックアップをエクスポート (JSON)</button>
     <label class="btn ghost block">⬆ バックアップから復元<input type="file" accept="application/json" hidden data-import></label>
@@ -32,6 +40,19 @@ export function render(root, ctx) {
     Object.assign(p, { name: f.name.trim(), throwingArm: f.throwingArm, sex: f.sex, heightCm: num(f.heightCm), weightKg: num(f.weightKg), age: num(f.age) });
     store.persist(); toast('保存しました'); ctx.refresh();
   };
+  $('#ch-form', root).onsubmit = (e) => {
+    e.preventDefault();
+    const handle = channelHandle(formData(e.target).ch);
+    if (!handle) { toast('「youtube.com/@○○」形式のURLを入力してください'); return; }
+    const list = store.db().refChannels;
+    if (list.some((c) => c.handle.toLowerCase() === handle.toLowerCase())) { toast('登録済みです'); return; }
+    list.push({ id: store.uid('ch'), handle, name: handle });
+    store.persist(); toast(`@${handle} を追加しました`); ctx.refresh();
+  };
+  $$('[data-del-ch]', root).forEach((b) => b.onclick = () => {
+    store.db().refChannels = store.db().refChannels.filter((c) => c.id !== b.dataset.delCh);
+    store.persist(); ctx.refresh();
+  });
   $('[data-export]', root).onclick = () => {
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([store.exportJson()], { type: 'application/json' }));

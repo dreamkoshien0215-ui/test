@@ -197,6 +197,23 @@ export function youtubeId(url) {
 
 export const youtubeSearchUrl = (q) => `https://www.youtube.com/results?search_query=${encodeURIComponent(q || '')}`;
 
+/** '@handle' from a channel URL (youtube.com/@handle[/...][?si=...]) or a bare '@handle'. */
+export function channelHandle(input) {
+  const s = String(input || '').trim();
+  const bare = s.match(/^@([\w.-]{3,})$/);
+  if (bare) return bare[1];
+  try {
+    const u = new URL(s);
+    if (!/(^|\.)youtube\.com$/.test(u.hostname)) return null;
+    const m = u.pathname.match(/^\/@([\w.-]{3,})/);
+    return m ? m[1] : null;
+  } catch { return null; }
+}
+
+export const channelUrl = (handle) => `https://www.youtube.com/@${encodeURIComponent(handle)}`;
+/** YouTube's in-channel search, so a drill keyword only returns that channel's videos. */
+export const channelSearchUrl = (handle, q) => `${channelUrl(handle)}/search?query=${encodeURIComponent(q || '')}`;
+
 /** Best (max) value per day, sorted ascending. items: [{date, value}] */
 export function dailyMax(items) {
   const map = new Map();
