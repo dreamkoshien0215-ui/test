@@ -17,14 +17,9 @@ npm start          # http://localhost:8080 で配信（ES Modulesのため file:
 npm test           # ロジックのユニットテスト
 ```
 
-## 公開（GitHub Pages）
+## 公開について
 
-`main` に push すると `.github/workflows/pages.yml` がテスト → 公開を自動で行います。
-
-- 公開URL: **https://dreamkoshien0215-ui.github.io/test/**
-- 初回のみ: リポジトリの **Settings → Pages → Build and deployment → Source** を **GitHub Actions** にする
-
-スマホではこのURLを開き、ブラウザの「ホーム画面に追加」で使ってください（iPhoneはSafariの共有メニュー →「ホーム画面に追加」）。データは端末内（localStorage）にのみ保存されます。設定画面から定期的にバックアップ(JSON)を取ってください。
+`https://dreamkoshien0215-ui.github.io/test/` はこのリポジトリの別アプリ（10分スケジュール）の公開URLです。PITCH LAB はこのリポジトリからは GitHub Pages に公開しません（専用リポジトリへ移して公開予定）。
 
 設計（画面構成・データスキーマ・実装ガイド）は [docs/DESIGN.md](docs/DESIGN.md) を参照。
 

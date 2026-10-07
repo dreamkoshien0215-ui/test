@@ -71,6 +71,25 @@ document.addEventListener('visibilitychange', () => {
 });
 render();
 
+/**
+ * PITCH LAB was briefly published at /test/, which belongs to another app (10分スケジュール).
+ * That deployment left a service worker scoped to /test/ (cache 'pitchlab-v3').
+ * Remove it once so it can never answer requests for the other app. The cache name is the
+ * marker: it is deleted here, so this never touches a worker the other app registers later.
+ */
+async function retireLegacyWorker() {
+  if (!(await caches.has('pitchlab-v3'))) return;
+  const scope = `${location.origin}/test/`;
+  if (new URL('./', location.href).href !== scope) {
+    for (const reg of await navigator.serviceWorker.getRegistrations()) {
+      const script = (reg.active || reg.waiting || reg.installing)?.scriptURL;
+      if (reg.scope === scope && script === `${scope}sw.js`) await reg.unregister();
+    }
+  }
+  await caches.delete('pitchlab-v3');
+}
+
 if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+  retireLegacyWorker().catch(() => {});
   navigator.serviceWorker.register('./sw.js').catch(() => {});
 }
