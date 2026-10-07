@@ -17,7 +17,14 @@ npm start          # http://localhost:8080 で配信（ES Modulesのため file:
 npm test           # ロジックのユニットテスト
 ```
 
-スマホで使うには GitHub Pages 等の静的ホスティングに置き、ブラウザの「ホーム画面に追加」を使用してください。データは端末内（localStorage）にのみ保存されます。設定画面から定期的にバックアップ(JSON)を取ってください。
+## 公開（GitHub Pages）
+
+`main` に push すると `.github/workflows/pages.yml` がテスト → 公開を自動で行います。
+
+- 公開URL: **https://dreamkoshien0215-ui.github.io/test/**
+- 初回のみ: リポジトリの **Settings → Pages → Build and deployment → Source** を **GitHub Actions** にする
+
+スマホではこのURLを開き、ブラウザの「ホーム画面に追加」で使ってください（iPhoneはSafariの共有メニュー →「ホーム画面に追加」）。データは端末内（localStorage）にのみ保存されます。設定画面から定期的にバックアップ(JSON)を取ってください。
 
 設計（画面構成・データスキーマ・実装ガイド）は [docs/DESIGN.md](docs/DESIGN.md) を参照。
 
