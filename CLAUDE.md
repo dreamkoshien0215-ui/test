@@ -4,10 +4,9 @@
 野球（投手）の **球速145km/h達成** と **障害予防（肩・肘・腰）** に特化したトレーニング管理アプリ。個人利用。
 
 ## 技術スタック
-- 指定スタック: React / TypeScript / Tailwind CSS（※使用するスタックに合わせる）
-- 現在の実装: ビルド不要の Vanilla JS（ES Modules）+ 素のCSS + Canvas。localStorage に保存するオフラインPWA。
-  - 既存コードを変更するときは、このスタックと周囲のコードの書き方に合わせる。
-  - React/TS/Tailwind へ移行する場合は `js/logic.js`（純粋ロジック）と `js/share-canvas.js`（描画）をそのまま TS 化して流用する。
+- **Vanilla JS（ES Modules）+ 素のCSS + Canvas**。ビルド不要・外部依存なし・localStorage 保存のオフラインPWA。
+  - React / TypeScript / Tailwind には移行しない（オーナー決定）。フレームワーク・ビルドツール・npm 依存を追加しない。
+  - 既存コードを変更するときは、周囲のコードの書き方（`render(root, ctx)`、`ui.js` の部品、CSS変数）に合わせる。
 
 ## デザインテーマ
 - アスリート向け **ダークモード固定**（OSのライト設定でも切り替えない）、モダン・スポーティー。
